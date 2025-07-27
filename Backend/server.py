@@ -379,7 +379,6 @@ def dv_summation():
             })
 
             nutrients = entry.get('nutrients', {})
-
             macronutrients = ['calories', 'protein', 'carbs', 'fat', 'fiber', 'sugar', 'sodium']
             for nutrient in macronutrients:
                 daily_totals[nutrient] += nutrients.get(nutrient, 0)
