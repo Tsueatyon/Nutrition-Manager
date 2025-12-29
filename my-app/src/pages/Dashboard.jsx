@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react';
-import { dailySummaryAPI } from '../services/api';
+import { useState, useEffect, useRef } from 'react';
+import { dailySummaryAPI, chatAPI } from '../services/api';
 import { Link } from 'react-router-dom';
 import '../index.css';
 
@@ -7,6 +7,10 @@ export default function DashboardPage() {
   const [summary, setSummary] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [chatMessages, setChatMessages] = useState([]);
+  const [chatInput, setChatInput] = useState('');
+  const [chatLoading, setChatLoading] = useState(false);
+  const messagesEndRef = useRef(null);
 
   // Helper function to get today's date in YYYY-MM-DD format (local timezone)
   const getTodayDate = () => {
@@ -17,6 +21,10 @@ export default function DashboardPage() {
   useEffect(() => {
     fetchSummary();
   }, []);
+
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [chatMessages]);
 
   const fetchSummary = async () => {
     try {
@@ -34,6 +42,35 @@ export default function DashboardPage() {
     }
   };
 
+  const handleChatSend = async (e) => {
+    e.preventDefault();
+    if (!chatInput.trim() || chatLoading) return;
+
+    const userMessage = chatInput.trim();
+    setChatInput('');
+    setError('');
+
+    const newUserMessage = { role: 'user', content: userMessage };
+    setChatMessages((prev) => [...prev, newUserMessage]);
+    setChatLoading(true);
+
+    try {
+      const response = await chatAPI.sendMessage(userMessage, chatMessages);
+      const data = response.data;
+
+      if (data.code === 200) {
+        const assistantMessage = { role: 'assistant', content: data.data.message };
+        setChatMessages((prev) => [...prev, assistantMessage]);
+      } else {
+        setError(data.message || 'Failed to get response');
+      }
+    } catch (err) {
+      setError(err.response?.data?.message || 'Failed to send message. Please try again.');
+    } finally {
+      setChatLoading(false);
+    }
+  };
+
   if (loading) {
     return (
       <div className="loading">
@@ -47,7 +84,7 @@ export default function DashboardPage() {
   }
 
   return (
-    <div style={{ padding: '1rem 1.5rem' }}>
+    <div style={{ padding: '1rem 1.5rem', minHeight: '100vh', background: 'linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%)' }}>
       <div style={{ marginBottom: '1.5rem' }}>
         <h1 style={{ fontSize: '1.875rem', fontWeight: 700, color: '#111827' }}>Dashboard</h1>
         <p style={{ marginTop: '0.5rem', color: '#4b5563' }}>Your daily nutrition overview</p>
@@ -103,25 +140,78 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2" style={{ gap: '1.5rem' }}>
-        <div className="card">
-          <h2 style={{ fontSize: '1.25rem', fontWeight: 700, color: '#111827', marginBottom: '1rem' }}>Quick Actions</h2>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-            <Link to="/food-log" className="btn-primary" style={{ textAlign: 'center', textDecoration: 'none', display: 'block' }}>
-              Add Food Entry
-            </Link>
-            <Link to="/chat" className="btn-secondary" style={{ textAlign: 'center', textDecoration: 'none', display: 'block', backgroundColor: '#2563eb' }}>
-              Ask AI Coach
-            </Link>
-            <Link to="/profile" className="btn-secondary" style={{ textAlign: 'center', textDecoration: 'none', display: 'block' }}>
-              Update Profile
-            </Link>
-          </div>
-        </div>
+      <div style={{ marginBottom: '2rem', textAlign: 'center' }}>
+        <Link to="/food-log" className="btn-primary" style={{ textDecoration: 'none', display: 'inline-block', padding: '0.75rem 2rem', fontSize: '1rem' }}>
+          Add Food Log
+        </Link>
+      </div>
 
-        <div className="card">
-          <h2 style={{ fontSize: '1.25rem', fontWeight: 700, color: '#111827', marginBottom: '1rem' }}>Date</h2>
-          <p style={{ fontSize: '1.125rem', color: '#4b5563' }}>{summary?.date || getTodayDate()}</p>
+      <div className="card" style={{ marginBottom: '2rem' }}>
+        <h2 style={{ fontSize: '1.25rem', fontWeight: 700, color: '#111827', marginBottom: '1rem' }}>AI Nutrition Coach</h2>
+        <div style={{ display: 'flex', flexDirection: 'column', height: '400px', padding: 0 }}>
+          <div style={{ flex: 1, overflowY: 'auto', padding: '1rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+            {chatMessages.length === 0 ? (
+              <div style={{ textAlign: 'center', color: '#6b7280', marginTop: '2rem' }}>
+                <p style={{ fontSize: '1.125rem' }}>Start a conversation with your AI nutrition coach!</p>
+                <p style={{ marginTop: '0.5rem', fontSize: '0.875rem' }}>Try asking:</p>
+                <ul style={{ marginTop: '0.5rem', fontSize: '0.875rem', listStyle: 'none', padding: 0 }}>
+                  <li>"What are my daily calorie needs?"</li>
+                  <li>"How many calories have I consumed today?"</li>
+                  <li>"What should I eat to reach my goals?"</li>
+                </ul>
+              </div>
+            ) : (
+              chatMessages.map((msg, idx) => (
+                <div
+                  key={idx}
+                  style={{
+                    display: 'flex',
+                    justifyContent: msg.role === 'user' ? 'flex-end' : 'flex-start'
+                  }}
+                >
+                  <div
+                    style={{
+                      maxWidth: '28rem',
+                      padding: '0.5rem 1rem',
+                      borderRadius: '0.5rem',
+                      backgroundColor: msg.role === 'user' ? '#16a34a' : '#e5e7eb',
+                      color: msg.role === 'user' ? '#ffffff' : '#111827'
+                    }}
+                  >
+                    <p style={{ fontSize: '0.875rem', whiteSpace: 'pre-wrap', margin: 0 }}>{msg.content}</p>
+                  </div>
+                </div>
+              ))
+            )}
+            {chatLoading && (
+              <div style={{ display: 'flex', justifyContent: 'flex-start' }}>
+                <div style={{ backgroundColor: '#e5e7eb', color: '#111827', padding: '0.5rem 1rem', borderRadius: '0.5rem' }}>
+                  <p style={{ fontSize: '0.875rem', margin: 0 }}>Thinking...</p>
+                </div>
+              </div>
+            )}
+            <div ref={messagesEndRef} />
+          </div>
+
+          <div style={{ borderTop: '1px solid #e5e7eb', padding: '1rem' }}>
+            <form onSubmit={handleChatSend} className="flex" style={{ gap: '0.5rem' }}>
+              <input
+                type="text"
+                value={chatInput}
+                onChange={(e) => setChatInput(e.target.value)}
+                placeholder="Type your message..."
+                className="flex-1"
+                disabled={chatLoading}
+              />
+              <button
+                type="submit"
+                disabled={chatLoading || !chatInput.trim()}
+                className="btn-primary"
+              >
+                Send
+              </button>
+            </form>
+          </div>
         </div>
       </div>
     </div>

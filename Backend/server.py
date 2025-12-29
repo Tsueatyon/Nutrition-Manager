@@ -25,14 +25,17 @@ app.config['PROPAGATE_EXCEPTIONS'] = True
 
 cors_origins_env = os.getenv('CORS_ORIGINS', '')
 if cors_origins_env:
-    allowed_origins = [origin.strip() for origin in cors_origins_env.split(',') if origin.strip()]
-    CORS(app, supports_credentials=True, origins=allowed_origins)
-else:
-    if os.getenv('FLASK_ENV') == 'production' or os.getenv('GOOGLE_CLOUD_PROJECT'):
-        allowed_origins = ['https://your-frontend.vercel.app']
-        CORS(app, supports_credentials=True, origins=allowed_origins)
-    else:
+    # Check if wildcard pattern is used (allow all)
+    if '*' in cors_origins_env or cors_origins_env.lower() == 'all':
         CORS(app, supports_credentials=True)
+    else:
+        # Support both comma and semicolon separators (semicolon for PowerShell compatibility)
+        separators = ',' if ',' in cors_origins_env else ';'
+        allowed_origins = [origin.strip() for origin in cors_origins_env.split(separators) if origin.strip()]
+        CORS(app, supports_credentials=True, origins=allowed_origins)
+else:
+    # Default: allow all origins (was working before)
+CORS(app, supports_credentials=True)
 
 jwt = JWTManager(app)
 app.config['JWT_SECRET_KEY'] = os.getenv('JWT_SECRET_KEY') or (
@@ -48,13 +51,13 @@ if database_url:
         database_url = database_url.replace('postgresql://', 'postgresql+psycopg2://', 1)
     app.config['SQLALCHEMY_DATABASE_URI'] = database_url
 elif config.has_section('postgres'):
-    app.config['SQLALCHEMY_DATABASE_URI'] = 'postgresql+psycopg2://%s:%s@%s:%d/%s' % (
-        config.get('postgres', 'user'),
-        config.get('postgres', 'password'),
-        config.get('postgres', 'host'),
-        config.getint('postgres', 'port'),
-        config.get('postgres', 'database')
-    )
+app.config['SQLALCHEMY_DATABASE_URI'] = 'postgresql+psycopg2://%s:%s@%s:%d/%s' % (
+    config.get('postgres', 'user'),
+    config.get('postgres', 'password'),
+    config.get('postgres', 'host'),
+    config.getint('postgres', 'port'),
+    config.get('postgres', 'database')
+)
 else:
     raise ValueError("DATABASE_URL environment variable or postgres config section required")
 

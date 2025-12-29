@@ -14,10 +14,15 @@ export default function FoodLogPage() {
     return `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
   };
 
+  const getTodayDate = () => {
+    const today = new Date();
+    return `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+  };
+
   const [formData, setFormData] = useState({
     food_name: '',
     quantity: '',
-    intake_date: new Date().toISOString().split('T')[0],
+    intake_date: getTodayDate(),
     meal_type: 'breakfast',
   });
 

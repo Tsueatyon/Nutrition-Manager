@@ -12,8 +12,9 @@ body {
     sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  background-color: #f9fafb;
+  background: linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%);
   color: #111827;
+  min-height: 100vh;
 }
 
 /* Utility Classes */

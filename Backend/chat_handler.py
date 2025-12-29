@@ -1,11 +1,15 @@
+# chat_handler.py - ULTRA-ROBUST VERSION
+# Extensive error handling to prevent HTML error pages
+
 import json
 import sys
 import configparser
-import traceback
 from flask import Request
 from flask_jwt_extended import get_jwt_identity
 from mcp_tools import mcp
 from functions import response
+import inspect
+import traceback
 
 _config_path = None
 
@@ -103,38 +107,62 @@ def call_mcp_tool(tool_name: str, arguments: dict, username: str = None) -> str:
 
 
 def handle_chat_message(request: Request):
+    """Handle chat message with extensive error handling."""
     try:
+        # Step 1: Authentication
         username = get_jwt_identity()
         if not username:
             return response(401, "Authentication required")
         
+        # Step 2: Parse request body
         try:
             data = request.get_json()
-        except Exception:
+        except Exception as e:
+            print(f"Failed to parse JSON: {e}")
             return response(400, "Invalid JSON in request body")
         
-        if not data or 'message' not in data:
+        if not data:
+            return response(400, "Empty request body")
+        
+        if 'message' not in data:
             return response(400, "Missing 'message' field in request body")
         
+        # Step 3: Extract and validate message
         user_message = data.get('message')
         conversation_history = data.get('history', [])
         
-        if not user_message or not isinstance(user_message, str) or len(user_message.strip()) == 0:
+        # Validate message
+        if user_message is None:
+            return response(400, "Message field cannot be null")
+        
+        if not isinstance(user_message, str):
+            try:
+                user_message = str(user_message)
+            except:
+                return response(400, "Message must be a string")
+        
+        if len(user_message.strip()) == 0:
             return response(400, "Message cannot be empty")
         
+        # Validate history
         if not isinstance(conversation_history, list):
+            print(f"Warning: history is not a list, got {type(conversation_history)}")
             conversation_history = []
         
+        # Step 4: Get config
         try:
             cfg = get_config()
             llm_provider = cfg.get('llm', 'provider', fallback='anthropic').lower()
             api_key = cfg.get('llm', 'api_key', fallback='')
         except Exception as e:
+            print(f"Config error: {e}")
+            traceback.print_exc()
             return response(500, f"Configuration error: {str(e)}")
         
         if not api_key or api_key in ['YOUR_ANTHROPIC_API_KEY_HERE', 'YOUR_OPENAI_API_KEY_HERE']:
             return response(500, "LLM API key not configured")
         
+        # Step 5: Build messages array
         try:
             tools = get_mcp_tools_for_llm()
             messages = []
@@ -149,18 +177,43 @@ Use the available tools to get user information when needed. Be conversational a
             
             messages.append({"role": "system", "content": system_message})
             
-            for msg in conversation_history[-10:]:
-                if isinstance(msg, dict):
+            # Process conversation history with extensive error handling
+            for i, msg in enumerate(conversation_history[-10:]):
+                try:
+                    if not isinstance(msg, dict):
+                        print(f"Warning: history[{i}] is not a dict, skipping")
+                        continue
+                    
                     role = msg.get("role", "user")
                     content = msg.get("content", "")
-                    if content and isinstance(content, str) and len(content.strip()) > 0:
-                        messages.append({"role": role, "content": content.strip()})
+                    
+                    if not content:
+                        print(f"Warning: history[{i}] has empty content, skipping")
+                        continue
+                    
+                    if not isinstance(content, str):
+                        print(f"Warning: history[{i}] content is not string, converting")
+                        content = str(content)
+                    
+                    content = content.strip()
+                    if len(content) > 0:
+                        messages.append({"role": role, "content": content})
+                    else:
+                        print(f"Warning: history[{i}] content is empty after strip, skipping")
+                        
+                except Exception as e:
+                    print(f"Error processing history[{i}]: {e}")
+                    continue
             
+            # Add current message
             messages.append({"role": "user", "content": user_message.strip()})
             
         except Exception as e:
+            print(f"Error building messages: {e}")
+            traceback.print_exc()
             return response(500, f"Error building messages: {str(e)}")
         
+        # Step 6: Call LLM
         try:
             if llm_provider == 'anthropic':
                 return call_anthropic_api(api_key, messages, tools, username)
@@ -169,9 +222,13 @@ Use the available tools to get user information when needed. Be conversational a
             else:
                 return response(400, f"Unsupported LLM provider: {llm_provider}")
         except Exception as e:
+            print(f"LLM call error: {e}")
+            traceback.print_exc()
             return response(500, f"LLM error: {str(e)}")
             
     except Exception as e:
+        # Catch-all error handler to prevent HTML error pages
+        print(f"Unhandled chat error: {e}")
         traceback.print_exc()
         return response(500, f"Internal server error: {str(e)}")
 
