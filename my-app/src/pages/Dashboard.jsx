@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { dailySummaryAPI, chatAPI } from '../services/api';
-import { Link } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 import '../index.css';
 
 export default function DashboardPage() {
@@ -11,6 +11,7 @@ export default function DashboardPage() {
   const [chatInput, setChatInput] = useState('');
   const [chatLoading, setChatLoading] = useState(false);
   const messagesEndRef = useRef(null);
+  const location = useLocation();
 
   // Helper function to get today's date in YYYY-MM-DD format (local timezone)
   const getTodayDate = () => {
@@ -18,13 +19,7 @@ export default function DashboardPage() {
     return `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
   };
 
-  useEffect(() => {
-    fetchSummary();
-  }, []);
-
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [chatMessages]);
+  const isInitialMount = useRef(true);
 
   const fetchSummary = async () => {
     try {
@@ -42,6 +37,47 @@ export default function DashboardPage() {
     }
   };
 
+  useEffect(() => {
+    fetchSummary();
+    loadChatHistory();
+  }, []);
+
+  // Refetch summary when navigating to dashboard (skip initial mount)
+  useEffect(() => {
+    if (isInitialMount.current) {
+      isInitialMount.current = false;
+      return;
+    }
+    if (location.pathname === '/' || location.pathname === '/dashboard') {
+      fetchSummary();
+    }
+  }, [location.pathname]);
+
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [chatMessages]);
+
+  const loadChatHistory = async () => {
+    try {
+      const response = await chatAPI.getHistory();
+      if (response.data.code === 200) {
+        const history = response.data.data.history || [];
+        setChatMessages(history);
+      }
+    } catch (err) {
+      console.error('Failed to load chat history from backend:', err);
+      setChatMessages([]);
+    }
+  };
+
+  const saveChatHistory = async (messages) => {
+    try {
+      await chatAPI.saveHistory(messages);
+    } catch (err) {
+      console.error('Failed to save chat history to backend:', err);
+    }
+  };
+
   const handleChatSend = async (e) => {
     e.preventDefault();
     if (!chatInput.trim() || chatLoading) return;
@@ -51,7 +87,9 @@ export default function DashboardPage() {
     setError('');
 
     const newUserMessage = { role: 'user', content: userMessage };
-    setChatMessages((prev) => [...prev, newUserMessage]);
+    const updatedMessages = [...chatMessages, newUserMessage];
+    setChatMessages(updatedMessages);
+    saveChatHistory(updatedMessages); // Save user message immediately
     setChatLoading(true);
 
     try {
@@ -60,15 +98,57 @@ export default function DashboardPage() {
 
       if (data.code === 200) {
         const assistantMessage = { role: 'assistant', content: data.data.message };
-        setChatMessages((prev) => [...prev, assistantMessage]);
+        const updatedMessagesWithResponse = [...updatedMessages, assistantMessage];
+        setChatMessages(updatedMessagesWithResponse);
+        saveChatHistory(updatedMessagesWithResponse);
+        setChatLoading(false);
+      } else if (data.code === 202 && data.data.task_id) {
+        // Background job started, poll for result
+        pollTaskStatus(data.data.task_id, updatedMessages);
       } else {
         setError(data.message || 'Failed to get response');
+        setChatLoading(false);
       }
     } catch (err) {
       setError(err.response?.data?.message || 'Failed to send message. Please try again.');
-    } finally {
       setChatLoading(false);
     }
+  };
+
+  const pollTaskStatus = async (taskId, currentMessages) => {
+    const maxAttempts = 30;
+    let attempts = 0;
+    
+    const poll = async () => {
+      try {
+        const response = await chatAPI.getTaskStatus(taskId);
+        const data = response.data;
+        
+        if (data.code === 200) {
+          const assistantMessage = { role: 'assistant', content: data.data.message };
+          const updatedMessagesWithResponse = [...currentMessages, assistantMessage];
+          setChatMessages(updatedMessagesWithResponse);
+          saveChatHistory(updatedMessagesWithResponse);
+          setChatLoading(false);
+        } else if (data.code === 202 && attempts < maxAttempts) {
+          attempts++;
+          setTimeout(poll, 1000);
+        } else {
+          setError('Request timed out. Please try again.');
+          setChatLoading(false);
+        }
+      } catch (err) {
+        if (attempts < maxAttempts) {
+          attempts++;
+          setTimeout(poll, 1000);
+        } else {
+          setError('Failed to get response. Please try again.');
+          setChatLoading(false);
+        }
+      }
+    };
+    
+    poll();
   };
 
   if (loading) {

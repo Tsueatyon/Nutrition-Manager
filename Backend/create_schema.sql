@@ -52,3 +52,5 @@ COMMENT ON TABLE food IS 'Food items with nutrition data';
 COMMENT ON TABLE user_intake IS 'User food intake logs';
 
 
+
+

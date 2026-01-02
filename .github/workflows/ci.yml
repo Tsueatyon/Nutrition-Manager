@@ -1,0 +1,106 @@
+name: CI/CD
+
+on:
+  push:
+    branches: [main, master]
+  workflow_dispatch:
+
+env:
+  PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+  GAR_LOCATION: us-central1
+  SERVICE: nutrition-app-backend
+  REGION: us-central1
+  REPOSITORY: nutrition-app
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        python-version: ['3.10']
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ matrix.python-version }}
+        cache: 'pip'
+
+    - name: Install dependencies
+      working-directory: ./Backend
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        pip install pytest pytest-cov
+
+    - name: Run tests
+      working-directory: ./Backend
+      env:
+        PYTHONPATH: ${{ github.workspace }}/Backend
+      run: |
+        python -m pytest tests/ -v --tb=short
+      continue-on-error: false
+
+  deploy:
+    needs: test
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Google Auth
+      id: auth
+      uses: google-github-actions/auth@v2
+      with:
+        workload_identity_provider: ${{ secrets.WIF_PROVIDER }}
+        service_account: ${{ secrets.WIF_SERVICE_ACCOUNT }}
+
+    - name: Set up Cloud SDK
+      uses: google-github-actions/setup-gcloud@v2
+
+    - name: Configure Docker for Artifact Registry
+      run: |
+        gcloud auth configure-docker ${{ env.GAR_LOCATION }}-docker.pkg.dev
+
+    - name: Build Docker image
+      working-directory: ./Backend
+      run: |
+        docker build \
+          -t ${{ env.GAR_LOCATION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/${{ env.SERVICE }}:${{ github.sha }} \
+          -t ${{ env.GAR_LOCATION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/${{ env.SERVICE }}:latest \
+          .
+
+    - name: Push Docker image to Artifact Registry
+      run: |
+        docker push ${{ env.GAR_LOCATION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/${{ env.SERVICE }}:${{ github.sha }}
+        docker push ${{ env.GAR_LOCATION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/${{ env.SERVICE }}:latest
+
+    - name: Deploy to Cloud Run
+      id: deploy
+      uses: google-github-actions/deploy-cloudrun@v2
+      with:
+        service: ${{ env.SERVICE }}
+        region: ${{ env.REGION }}
+        image: ${{ env.GAR_LOCATION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/${{ env.SERVICE }}:${{ github.sha }}
+        flags: |
+          --allow-unauthenticated
+          --max-instances=10
+          --min-instances=0
+          --memory=512Mi
+          --cpu=1
+          --port=8080
+          --set-env-vars=ENVIRONMENT=production
+
+    - name: Show Output
+      run: echo ${{ steps.deploy.outputs.url }}
+
+    - name: Verify Deployment
+      run: |
+        curl -f ${{ steps.deploy.outputs.url }}/health || exit 1

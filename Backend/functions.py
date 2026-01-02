@@ -11,7 +11,7 @@ from sqlalchemy import text
 from database import db
 
 config = configparser.ConfigParser()
-config.read(sys.argv[1] if len(sys.argv) > 1 else 'config.prd.ini', encoding='utf-8')
+config.read(sys.argv[1])
 
 
 def response(code: int, message: str, data: any = None):
@@ -31,12 +31,10 @@ def response(code: int, message: str, data: any = None):
         200
     )
 
-
 def query(sql: str, param=None):
     res = db.session.execute(text(sql), param)
     data = [dict(zip(result.keys(), result)) for result in res]
     return data
-
 
 def execute(sql: str, param=None):
     try:
@@ -46,7 +44,6 @@ def execute(sql: str, param=None):
     except Exception as e:
         db.session.rollback()
         raise e
-
 
 def register_user(request: Request):
     data = request.get_json()
@@ -74,6 +71,7 @@ def register_user(request: Request):
             'SELECT id FROM users WHERE username = :username',
             {'username': username}
         )
+
         if existing_user:
             return response(400, 'Username already exists')
 
@@ -118,7 +116,6 @@ def register_user(request: Request):
         db.session.rollback()
         return response(500, f'Internal server error: {str(error)}')
 
-
 def login_user(request: Request):
     credentials = request.get_json()
     username = credentials.get('username')
@@ -160,7 +157,6 @@ def login_user(request: Request):
         print('Login error:', error)
         return response(500, 'Internal server error')
 
-
 def get_my_profile():
     username = get_jwt_identity()
     if not username:
@@ -172,8 +168,6 @@ def get_my_profile():
             FROM users WHERE username = :username
         """
         result = query(sql, {"username": username})
-        if not result:
-            return response(400, "User not found")
         return response(200, "Profile retrieved successfully", result[0])
     except Exception as e:
         db.session.rollback()
@@ -196,21 +190,17 @@ def profile_edit(request: Request):
     for key, value in data.items():
         if key not in allowed_fields:
             return response(400, f'Cannot update field: {key}')
-        
-        # Validate age is an integer if provided
+
+        # Convert age to int if provided
         if key == 'age':
             try:
-                age_int = int(value)
-                if age_int < 1 or age_int > 150:
-                    return response(400, 'Age must be between 1 and 150')
-                updates[key] = age_int
-                params[key] = age_int
+                value = int(value)
             except (ValueError, TypeError):
                 return response(400, 'Age must be a valid integer')
-        else:
-            updates[key] = value
-            params[key] = value
-
+        
+        updates[key] = value
+        params[key] = value
+    
     if not updates:
         return response(400, 'No valid fields provided to update')
 
@@ -234,17 +224,23 @@ def profile_edit(request: Request):
 def search_food_in_usda(food_name: str):
     try:
         api_key = config.get('api_key', 'USDA_api')
-
-        # Search for food
         search_url = "https://api.nal.usda.gov/fdc/v1/foods/search"
-        search_params = {
-            "api_key": api_key,
+        query_params = {
+            "api_key": api_key
+        }
+        search_body = {
             "query": food_name,
-            "pageSize": 1,
+            "pageSize": 5,
             "dataType": ["Survey (FNDDS)", "Foundation", "SR Legacy"]
         }
 
-        search_response = requests.get(search_url, params=search_params, timeout=10)
+        search_response = requests.post(
+            search_url, 
+            params=query_params,
+            json=search_body,
+            headers={'Content-Type': 'application/json'},
+            timeout=10
+        )
 
         if search_response.status_code != 200:
             print(f"USDA API error: {search_response.status_code}")
@@ -255,37 +251,74 @@ def search_food_in_usda(food_name: str):
         if not search_data.get('foods') or len(search_data['foods']) == 0:
             return None
 
-        food = search_data['foods'][0]
+        # Try each food result until we find one with complete nutrition data
+        for food_item in search_data['foods']:
+            nutrients = {}
+            for nutrient in food_item.get('foodNutrients', []):
+                nutrient_name = nutrient.get('nutrientName', '').lower()
+                nutrient_value = nutrient.get('value')
+                if nutrient_value is None:
+                    continue
+                try:
+                    nutrient_value = float(nutrient_value)
+                except (ValueError, TypeError):
+                    continue
+                nutrient_unit = nutrient.get('unitName', '').lower()
+                nutrient_id = nutrient.get('nutrientId')
 
-        nutrients = {}
-        for nutrient in food.get('foodNutrients', []):
-            nutrient_name = nutrient.get('nutrientName', '').lower()
-            nutrient_value = nutrient.get('value', 0)
-            nutrient_unit = nutrient.get('unitName', '').lower()
-
-            if 'energy' in nutrient_name:
-                if 'kcal' in nutrient_unit:
+                # Use nutrient IDs for more reliable matching (standard USDA IDs)
+                # Energy: 1008 (kcal) or 1062 (kJ)
+                # Protein: 1003
+                # Carbohydrate: 1005
+                # Fat: 1004
+                if nutrient_id == 1008:  # Energy (kcal)
                     nutrients['calories'] = nutrient_value
-                elif 'kj' in nutrient_unit:
+                elif nutrient_id == 1062:  # Energy (kJ)
                     nutrients['calories'] = nutrient_value / 4.184
-            elif 'protein' in nutrient_name and nutrient_unit == 'g':
-                nutrients['protein'] = nutrient_value
-            elif 'carbohydrate' in nutrient_name and nutrient_unit == 'g':
-                nutrients['carbs'] = nutrient_value
-            elif ('total lipid' in nutrient_name or 'fat, total' in nutrient_name) and nutrient_unit == 'g':
-                nutrients['fat'] = nutrient_value
+                elif nutrient_id == 1003:  # Protein
+                    if nutrient_unit == 'g':
+                        nutrients['protein'] = nutrient_value
+                elif nutrient_id == 1005:  # Carbohydrate, by difference
+                    if nutrient_unit == 'g':
+                        nutrients['carbs'] = nutrient_value
+                elif nutrient_id == 1004:  # Total lipid (fat)
+                    if nutrient_unit == 'g':
+                        nutrients['fat'] = nutrient_value
+                else:
+                    # Fallback to name-based matching if ID doesn't match
+                    if not nutrients.get('calories'):
+                        if 'energy' in nutrient_name:
+                            if 'kcal' in nutrient_unit:
+                                nutrients['calories'] = nutrient_value
+                            elif 'kj' in nutrient_unit:
+                                nutrients['calories'] = nutrient_value / 4.184
+                    if not nutrients.get('protein'):
+                        if ('protein' in nutrient_name or 'prot' in nutrient_name) and nutrient_unit == 'g':
+                            nutrients['protein'] = nutrient_value
+                    if not nutrients.get('carbs'):
+                        if ('carbohydrate' in nutrient_name or 'carb' in nutrient_name or 'cho' in nutrient_name) and nutrient_unit == 'g':
+                            nutrients['carbs'] = nutrient_value
+                    if not nutrients.get('fat'):
+                        if ('total lipid' in nutrient_name or 'fat, total' in nutrient_name or 'fat' == nutrient_name) and nutrient_unit == 'g':
+                            nutrients['fat'] = nutrient_value
 
-        if not all(key in nutrients for key in ['calories', 'protein', 'carbs', 'fat']):
-            return None
+            # Use defaults of 0 for missing nutrients instead of failing
+            calories = nutrients.get('calories', 0)
+            protein = nutrients.get('protein', 0)
+            carbs = nutrients.get('carbs', 0)
+            fat = nutrients.get('fat', 0)
 
-        return {
-            'name': food.get('description', food_name),
-            'calories': round(nutrients['calories'], 2),
-            'protein': round(nutrients['protein'], 2),
-            'carbs': round(nutrients['carbs'], 2),
-            'fat': round(nutrients['fat'], 2),
-            'serving_unit': 'g'
-        }
+            # Accept if we have at least calories and one macro (more lenient requirement)
+            if calories > 0 and (protein > 0 or carbs > 0 or fat > 0):
+                return {
+                    'name': food_item.get('description', food_name),
+                    'calories': round(calories, 2),
+                    'protein': round(protein, 2),
+                    'carbs': round(carbs, 2),
+                    'fat': round(fat, 2),
+                    'serving_unit': 'g'
+                }
+        return None
 
     except requests.exceptions.RequestException as e:
         print(f"USDA API request error: {e}")
@@ -293,7 +326,6 @@ def search_food_in_usda(food_name: str):
     except Exception as e:
         print(f"Error searching USDA: {e}")
         return None
-
 
 def insert_log(request: Request):
     username = get_jwt_identity()
@@ -390,6 +422,8 @@ def insert_log(request: Request):
             return response(500, "Failed to insert intake entry")
 
         row_dict = dict(inserted_row)
+        # Get date before converting to string for cache invalidation
+        affected_date = row_dict.get("intake_date")
         if row_dict.get("intake_date"):
             row_dict["intake_date"] = row_dict["intake_date"].isoformat()
         if row_dict.get("created_at"):
@@ -399,6 +433,14 @@ def insert_log(request: Request):
             food_query = query("SELECT name FROM food WHERE id = :food_id", {"food_id": row_dict["food_id"]})
             if food_query:
                 row_dict["food_name"] = food_query[0]["name"]
+
+        # Invalidate cache for the affected date
+        try:
+            from redis_client import invalidate_nutrition_cache
+            if affected_date:
+                invalidate_nutrition_cache(username, str(affected_date))
+        except Exception as e:
+            print(f"Cache invalidation error in insert_log: {e}")
 
         return response(200, "Intake entry created successfully", row_dict)
 
@@ -513,6 +555,8 @@ def update_log(request: Request):
             return response(400, "Entry not found or unauthorized")
 
         result_dict = dict(updated_row)
+        # Get date before converting to string for cache invalidation
+        affected_date = result_dict.get("intake_date")
         if result_dict.get("intake_date"):
             result_dict["intake_date"] = result_dict["intake_date"].isoformat()
         if result_dict.get("created_at"):
@@ -524,6 +568,14 @@ def update_log(request: Request):
             food_query = query("SELECT name FROM food WHERE id = :food_id", {"food_id": result_dict["food_id"]})
             if food_query:
                 result_dict["food_name"] = food_query[0]["name"]
+
+        # Invalidate cache for the affected date (this also invalidates 7-day history cache)
+        try:
+            from redis_client import invalidate_nutrition_cache
+            if affected_date:
+                invalidate_nutrition_cache(username, str(affected_date))
+        except Exception as e:
+            print(f"Cache invalidation error in update_log: {e}")
 
         return response(200, "Intake entry updated successfully", result_dict)
 
@@ -537,6 +589,17 @@ def retrieve_log(time_constraint: date = None):
     username = get_jwt_identity()
 
     try:
+        # Try to get from cache first
+        try:
+            from redis_client import cache_get, cache_set, get_cache_key_for_logs
+            date_filter = str(time_constraint) if time_constraint else "all"
+            cache_key = get_cache_key_for_logs(username, date_filter)
+            cached_data = cache_get(cache_key)
+            if cached_data is not None:
+                return response(200, "Logs retrieved successfully (cached)", cached_data)
+        except ImportError:
+            pass  # Redis not available, continue without cache
+        
         sql = "SELECT id FROM users WHERE username = :username"
         res = query(sql, {"username": username})
         if not res:
@@ -567,6 +630,16 @@ def retrieve_log(time_constraint: date = None):
         sql += " ORDER BY ui.intake_date DESC, ui.created_at DESC"
 
         logs = query(sql, params)
+        
+        # Cache the result (24 hour TTL)
+        try:
+            from redis_client import cache_set, get_cache_key_for_logs
+            date_filter = str(time_constraint) if time_constraint else "all"
+            cache_key = get_cache_key_for_logs(username, date_filter)
+            cache_set(cache_key, logs, ttl=86400)  # Cache for 24 hours
+        except ImportError:
+            pass
+        
         return response(200, "Logs retrieved successfully", logs)
 
     except Exception as e:
@@ -614,6 +687,8 @@ def delete_log(request: Request):
             return response(400, "Entry not found or unauthorized")
 
         result_dict = dict(deleted_row)
+        # Get date before converting to string for cache invalidation
+        affected_date = result_dict.get("intake_date")
         if result_dict.get("intake_date"):
             result_dict["intake_date"] = result_dict["intake_date"].isoformat()
         if result_dict.get("created_at"):
@@ -625,6 +700,14 @@ def delete_log(request: Request):
             food_query = query("SELECT name FROM food WHERE id = :food_id", {"food_id": result_dict["food_id"]})
             if food_query:
                 result_dict["food_name"] = food_query[0]["name"]
+
+        # Invalidate cache for the affected date
+        try:
+            from redis_client import invalidate_nutrition_cache
+            if affected_date:
+                invalidate_nutrition_cache(username, str(affected_date))
+        except Exception as e:
+            print(f"Cache invalidation error in delete_log: {e}")
 
         return response(200, "Intake entry deleted successfully", result_dict)
 
@@ -660,6 +743,16 @@ def get_daily_nutrition(target_date: date = None):
         target_date = date.today()
 
     try:
+        # Try to get from cache first
+        try:
+            from redis_client import cache_get, cache_set, get_cache_key_for_daily_nutrition
+            cache_key = get_cache_key_for_daily_nutrition(username, str(target_date))
+            cached_data = cache_get(cache_key)
+            if cached_data is not None:
+                return cached_data
+        except ImportError:
+            pass  # Redis not available, continue without cache
+
         sql = "SELECT id FROM users WHERE username = :username"
         res = query(sql, {"username": username})
 
@@ -670,7 +763,15 @@ def get_daily_nutrition(target_date: date = None):
         intake_rows = fetch_intake_rows(user_id, target_date)
 
         if not intake_rows:
-            return None  # No data for this date
+            # Cache None result as well (to avoid repeated DB queries)
+            result = None
+            try:
+                from redis_client import cache_set, get_cache_key_for_daily_nutrition
+                cache_key = get_cache_key_for_daily_nutrition(username, str(target_date))
+                cache_set(cache_key, None, ttl=86400)  # Cache for 24 hours
+            except ImportError:
+                pass
+            return result
 
         total = {"calories": 0.0, "protein": 0.0, "carbs": 0.0, "fat": 0.0}
 
@@ -688,6 +789,15 @@ def get_daily_nutrition(target_date: date = None):
             total["fat"] += fat * factor
 
         total = {k: round(v, 2) for k, v in total.items()}
+        
+        # Cache the result (24 hour TTL)
+        try:
+            from redis_client import cache_set, get_cache_key_for_daily_nutrition
+            cache_key = get_cache_key_for_daily_nutrition(username, str(target_date))
+            cache_set(cache_key, total, ttl=86400)  # Cache for 24 hours
+        except ImportError:
+            pass
+        
         return total
 
     except Exception as e:
@@ -777,10 +887,20 @@ def get_daily_needs():
         return response(500, 'Failed to calculate daily needs')
 
 
-def get_30_day_history():
+def get_7_day_history():
     username = get_jwt_identity()
     
     try:
+        # Try to get from cache first
+        try:
+            from redis_client import cache_get, cache_set, get_cache_key_for_7day_history
+            cache_key = get_cache_key_for_7day_history(username)
+            cached_data = cache_get(cache_key)
+            if cached_data is not None:
+                return response(200, "7-day history retrieved successfully (cached)", cached_data)
+        except ImportError:
+            pass  # Redis not available, continue without cache
+        
         sql = "SELECT id FROM users WHERE username = :username"
         res = query(sql, {"username": username})
         
@@ -819,7 +939,7 @@ def get_30_day_history():
         
         daily_needs = {"calories": round(tdee), "protein_g": protein, "fat_g": fat, "carbs_g": carbs}
         
-        for i in range(30):
+        for i in range(7):
             target_date = today - timedelta(days=i)
             nutrition = get_daily_nutrition(target_date)
             
@@ -837,12 +957,22 @@ def get_30_day_history():
                 }
             })
         
-        return response(200, "30-day history retrieved successfully", {
+        result_data = {
             "history": history,
             "daily_needs": daily_needs
-        })
+        }
+        
+        # Cache the result (24 hour TTL)
+        try:
+            from redis_client import cache_set, get_cache_key_for_7day_history
+            cache_key = get_cache_key_for_7day_history(username)
+            cache_set(cache_key, result_data, ttl=86400)  # Cache for 24 hours
+        except ImportError:
+            pass
+        
+        return response(200, "7-day history retrieved successfully", result_data)
         
     except Exception as e:
         db.session.rollback()
-        print('Get 30-day history error:', e)
-        return response(500, 'Failed to retrieve 30-day history')
+        print('Get 7-day history error:', e)
+        return response(500, 'Failed to retrieve 7-day history')

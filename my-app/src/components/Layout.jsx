@@ -1,13 +1,30 @@
 import { Link, useLocation, useNavigate } from 'react-router-dom';
+import { chatAPI } from '../services/api';
 import '../index.css';
 
 export default function AppLayout({ children }) {
   const location = useLocation();
   const navigate = useNavigate();
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    try {
+      // Clear chat history from backend before logout
+      const token = localStorage.getItem('token');
+      if (token) {
+        try {
+          await chatAPI.clearHistory();
+        } catch (err) {
+          console.error('Failed to clear chat history:', err);
+          // Continue with logout even if clearing history fails
+        }
+      }
+    } catch (err) {
+      console.error('Error during logout:', err);
+    }
+    
     localStorage.removeItem('token');
     localStorage.removeItem('user');
+    localStorage.removeItem('chat_messages'); // Clear chat messages from localStorage
     navigate('/login');
   };
 

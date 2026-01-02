@@ -15,7 +15,7 @@ export default function HistoryPage() {
   const fetchHistory = async () => {
     try {
       setLoading(true);
-      const response = await historyAPI.get30Days();
+      const response = await historyAPI.get7Days();
       const data = response.data;
       if (data.code === 200) {
         setHistory(data.data.history || []);
@@ -78,7 +78,7 @@ export default function HistoryPage() {
       <div className="loading" style={{ minHeight: '60vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
         <div style={{ textAlign: 'center' }}>
           <div className="text-lg" style={{ marginBottom: '0.5rem' }}>Loading...</div>
-          <div style={{ fontSize: '0.875rem', color: '#6b7280' }}>Fetching your 30-day nutrition history</div>
+          <div style={{ fontSize: '0.875rem', color: '#6b7280' }}>Fetching your 7-day nutrition history</div>
         </div>
       </div>
     );
@@ -112,7 +112,7 @@ export default function HistoryPage() {
           marginBottom: '0.5rem',
           letterSpacing: '-0.025em'
         }}>
-          30-Day Nutrition History
+          7-Day Nutrition History
         </h1>
         <p style={{ 
           fontSize: '1.125rem', 

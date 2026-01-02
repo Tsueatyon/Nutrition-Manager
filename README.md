@@ -255,3 +255,5 @@ Built with ❤️ for better nutrition tracking
 
 **Note**: Remember to set up your API keys and database credentials before running the application.
 
+
+

@@ -1,15 +1,20 @@
-# chat_handler.py - ULTRA-ROBUST VERSION
-# Extensive error handling to prevent HTML error pages
-
 import json
 import sys
+import os
 import configparser
+import hashlib
 from flask import Request
 from flask_jwt_extended import get_jwt_identity
-from mcp_tools import mcp
 from functions import response
-import inspect
 import traceback
+
+from redis_client import cache_get, cache_set, get_cache_key_for_recommendation, get_cache_key_for_chat
+
+
+try:
+    from celery_app import process_llm_message
+except ImportError:
+    process_llm_message = None
 
 _config_path = None
 
@@ -213,14 +218,71 @@ Use the available tools to get user information when needed. Be conversational a
             traceback.print_exc()
             return response(500, f"Error building messages: {str(e)}")
         
-        # Step 6: Call LLM
+        # Step 6: Check cache for similar recommendations
+        query_hash = hashlib.md5(user_message.strip().lower().encode()).hexdigest()
+        cache_key = get_cache_key_for_recommendation(username, query_hash)
+        cached_response = cache_get(cache_key)
+        
+        if cached_response:
+            print(f"Cache hit for query: {user_message[:50]}...")
+            return response(200, "Cached recommendation", cached_response)
+        
+        # Step 7: Store chat history in Redis
         try:
-            if llm_provider == 'anthropic':
-                return call_anthropic_api(api_key, messages, tools, username)
-            elif llm_provider == 'openai':
-                return call_openai_api(api_key, messages, tools, username)
-            else:
-                return response(400, f"Unsupported LLM provider: {llm_provider}")
+            chat_key = get_cache_key_for_chat(username)
+            chat_history = conversation_history + [{"role": "user", "content": user_message.strip()}]
+            cache_set(chat_key, chat_history, ttl=86400 * 7)
+        except Exception as e:
+            print(f"Failed to cache chat history: {e}")
+        
+        # Step 8: Process LLM call in background
+        try:
+            use_background = os.getenv('USE_BACKGROUND_JOBS', 'false').lower() == 'true'
+            
+            if use_background and process_llm_message:
+                try:
+                    task = process_llm_message.delay(api_key, messages, tools, username, llm_provider)
+                    return response(202, "Request accepted, processing in background", {
+                        "task_id": task.id,
+                        "status": "processing",
+                        "message": "Your request is being processed. Please check back in a moment."
+                    })
+                except Exception as e:
+                    print(f"Failed to start background task: {e}. Falling back to sync.")
+                    use_background = False
+            
+            if not use_background:
+                # Fallback to synchronous processing
+                if llm_provider == 'anthropic':
+                    result = call_anthropic_api(api_key, messages, tools, username)
+                else:
+                    return response(400, f"Unsupported LLM provider: {llm_provider}")
+                
+                # Handle result (can be dict with error or success data)
+                if isinstance(result, dict):
+                    if "error" in result:
+                        return response(500, result["error"])
+                    else:
+                        # Cache successful responses
+                        cache_set(cache_key, result, ttl=3600)
+                        # Update chat history with AI response
+                        try:
+                            chat_key = get_cache_key_for_chat(username)
+                            updated_history = chat_history + [{"role": "assistant", "content": result.get("message", "")}]
+                            cache_set(chat_key, updated_history, ttl=86400 * 7)  # 7 days
+                        except Exception as e:
+                            print(f"Failed to update chat history with AI response: {e}")
+                        return response(200, "Chat response generated", result)
+                else:
+                    # Legacy response object
+                    if result.status_code == 200:
+                        try:
+                            result_data = json.loads(result.get_data(as_text=True))
+                            if result_data.get('code') == 200:
+                                cache_set(cache_key, result_data.get('data', {}), ttl=3600)
+                        except:
+                            pass
+                    return result
         except Exception as e:
             print(f"LLM call error: {e}")
             traceback.print_exc()
@@ -234,6 +296,7 @@ Use the available tools to get user information when needed. Be conversational a
 
 
 def call_anthropic_api(api_key: str, messages: list, tools: list, username: str = None):
+    """Call Anthropic API with improved error handling."""
     try:
         import anthropic
         
@@ -252,20 +315,39 @@ def call_anthropic_api(api_key: str, messages: list, tools: list, username: str 
                     anthropic_messages.append({"role": msg["role"], "content": content.strip()})
         
         if len(anthropic_messages) == 0:
-            return response(400, "No valid messages to process")
+            return {"error": "No valid messages to process"}
         
         max_iterations = 5
         iteration = 0
         tools_called = []
         
         while iteration < max_iterations:
-            api_response = client.messages.create(
-                model=cfg.get('llm', 'model', fallback='claude-3-5-haiku-20241022'),
-                max_tokens=1024,
-                system=system_content,
-                messages=anthropic_messages,
-                tools=tools if tools else None
-            )
+            try:
+                api_response = client.messages.create(
+                    model=cfg.get('llm', 'model', fallback='claude-3-5-haiku-20241022'),
+                    max_tokens=1024,
+                    system=system_content,
+                    messages=anthropic_messages,
+                    tools=tools if tools else None,
+                    timeout=30.0
+                )
+            except anthropic.APIError as e:
+                error_msg = f"Anthropic API error: {e.status_code} - {e.message}"
+                print(error_msg)
+                return {"error": error_msg}
+            except anthropic.APIConnectionError as e:
+                error_msg = f"Anthropic connection error: {str(e)}"
+                print(error_msg)
+                return {"error": error_msg}
+            except anthropic.APITimeoutError as e:
+                error_msg = f"Anthropic timeout error: {str(e)}"
+                print(error_msg)
+                return {"error": error_msg}
+            except Exception as e:
+                error_msg = f"Unexpected Anthropic error: {str(e)}"
+                print(error_msg)
+                traceback.print_exc()
+                return {"error": error_msg}
             
             assistant_content = []
             tool_use_blocks = []
@@ -277,14 +359,14 @@ def call_anthropic_api(api_key: str, messages: list, tools: list, username: str 
                     tool_use_blocks.append(content_block)
             
             if assistant_content and not tool_use_blocks:
-                return response(200, "Chat response generated", {
+                return {
                     "message": " ".join(assistant_content),
                     "usage": {
                         "input_tokens": api_response.usage.input_tokens,
                         "output_tokens": api_response.usage.output_tokens
                     },
                     "tools_called": tools_called
-                })
+                }
             
             if tool_use_blocks:
                 assistant_message_content = []
@@ -301,12 +383,20 @@ def call_anthropic_api(api_key: str, messages: list, tools: list, username: str 
                 tool_results = []
                 for block in tool_use_blocks:
                     tools_called.append({"name": block.name, "arguments": block.input})
-                    tool_result = call_mcp_tool(block.name, block.input, username)
-                    tool_results.append({
-                        "type": "tool_result",
-                        "tool_use_id": block.id,
-                        "content": tool_result
-                    })
+                    try:
+                        tool_result = call_mcp_tool(block.name, block.input, username)
+                        tool_results.append({
+                            "type": "tool_result",
+                            "tool_use_id": block.id,
+                            "content": tool_result
+                        })
+                    except Exception as e:
+                        print(f"Tool execution error: {e}")
+                        tool_results.append({
+                            "type": "tool_result",
+                            "tool_use_id": block.id,
+                            "content": json.dumps({"error": f"Tool execution failed: {str(e)}"})
+                        })
                 
                 anthropic_messages.append({"role": "user", "content": tool_results})
                 
@@ -315,85 +405,14 @@ def call_anthropic_api(api_key: str, messages: list, tools: list, username: str 
             
             iteration += 1
         
-        return response(500, "Max iterations reached in tool calling")
+        return {"error": "Max iterations reached in tool calling"}
         
     except ImportError:
-        return response(500, "Anthropic SDK not installed")
+        return {"error": "Anthropic SDK not installed"}
     except Exception as e:
-        print(f"Anthropic API error: {e}")
+        error_msg = f"Anthropic API error: {str(e)}"
+        print(error_msg)
         traceback.print_exc()
-        return response(500, f"Anthropic API error: {str(e)}")
+        return {"error": error_msg}
 
 
-def call_openai_api(api_key: str, messages: list, tools: list, username: str = None):
-    try:
-        from openai import OpenAI
-        
-        client = OpenAI(api_key=api_key)
-        cfg = get_config()
-        
-        openai_tools = []
-        for tool in tools:
-            openai_tools.append({
-                "type": "function",
-                "function": {
-                    "name": tool["name"],
-                    "description": tool["description"],
-                    "parameters": tool["input_schema"]
-                }
-            })
-        
-        openai_messages = [msg for msg in messages if msg["role"] != "system"]
-        
-        max_iterations = 5
-        iteration = 0
-        tools_called = []
-        
-        while iteration < max_iterations:
-            api_response = client.chat.completions.create(
-                model=cfg.get('llm', 'model', fallback='gpt-4'),
-                messages=openai_messages,
-                tools=openai_tools if openai_tools else None,
-                tool_choice="auto" if openai_tools else None
-            )
-            
-            message = api_response.choices[0].message
-            
-            if message.tool_calls:
-                openai_messages.append({
-                    "role": "assistant",
-                    "content": message.content,
-                    "tool_calls": [{"id": tc.id, "type": tc.type, "function": {"name": tc.function.name, "arguments": tc.function.arguments}} for tc in message.tool_calls]
-                })
-                
-                for tool_call in message.tool_calls:
-                    tool_name = tool_call.function.name
-                    tool_args = json.loads(tool_call.function.arguments)
-                    tools_called.append({"name": tool_name, "arguments": tool_args})
-                    tool_result = call_mcp_tool(tool_name, tool_args, username)
-                    openai_messages.append({"role": "tool", "tool_call_id": tool_call.id, "name": tool_name, "content": tool_result})
-                
-                iteration += 1
-                continue
-            
-            if message.content:
-                return response(200, "Chat response generated", {
-                    "message": message.content,
-                    "usage": {
-                        "prompt_tokens": api_response.usage.prompt_tokens,
-                        "completion_tokens": api_response.usage.completion_tokens,
-                        "total_tokens": api_response.usage.total_tokens
-                    },
-                    "tools_called": tools_called
-                })
-            
-            iteration += 1
-        
-        return response(500, "Max iterations reached")
-        
-    except ImportError:
-        return response(500, "OpenAI SDK not installed")
-    except Exception as e:
-        print(f"OpenAI API error: {e}")
-        traceback.print_exc()
-        return response(500, f"OpenAI API error: {str(e)}")
