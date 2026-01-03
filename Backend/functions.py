@@ -209,6 +209,23 @@ def profile_edit(request: Request):
         if result.rowcount == 0:
             return response(400, 'User not found')
 
+        # Check if any fields that affect daily needs were updated
+        fields_affecting_daily_needs = {'age', 'sex', 'height_cm', 'weight_kg', 'activity_level', 'goal'}
+        affects_daily_needs = bool(updates.keys() & fields_affecting_daily_needs)
+        
+        # Invalidate cache for daily needs if relevant fields were updated
+        # This ensures daily needs are recalculated with new profile data
+        if affects_daily_needs:
+            try:
+                from redis_client import invalidate_nutrition_cache, cache_delete, get_cache_key_for_7day_history
+                # Invalidate 7-day history cache which contains daily_needs
+                cache_delete(get_cache_key_for_7day_history(current_username))
+                # Also invalidate all nutrition cache to ensure fresh data
+                invalidate_nutrition_cache(current_username)
+                print(f"Cache invalidated for user {current_username} due to profile fields affecting daily needs: {list(updates.keys())}")
+            except Exception as e:
+                print(f"Cache invalidation error in profile_edit: {e}")
+
         return response(200, 'Profile updated successfully')
 
     except Exception as e:
@@ -849,6 +866,7 @@ def get_daily_needs():
         weight_kg = float(profile["weight_kg"])
         height_cm = float(profile["height_cm"])
         activity_level = profile["activity_level"]
+        goal = profile.get("goal", "maintain")
         
         # Validate data
         if not all([weight_kg, height_cm, age_years]):
@@ -860,6 +878,9 @@ def get_daily_needs():
         if activity_level not in ["sedentary", "light", "moderate", "active", "extra"]:
             return response(400, f"invalid activity_level: {activity_level}")
         
+        if goal not in ["cut", "maintain", "bulk"]:
+            return response(400, f"invalid goal value: {goal}. Must be 'cut', 'maintain', or 'bulk'")
+        
         if sex == "male":
             bmr = 10 * weight_kg + 6.25 * height_cm - 5 * age_years + 5
         else:
@@ -867,17 +888,30 @@ def get_daily_needs():
         
         factors = {"sedentary": 1.2, "light": 1.375, "moderate": 1.55, "active": 1.725, "extra": 1.9}
         tdee = bmr * factors[activity_level]
+        
+        # Adjust TDEE based on goal
+        goal_adjustments = {
+            "cut": -0.20,      # 20% deficit for weight loss
+            "maintain": 0.0,   # No adjustment for maintenance
+            "bulk": 0.20       # 20% surplus for weight gain
+        }
+        goal_multiplier = 1.0 + goal_adjustments.get(goal, 0.0)
+        adjusted_tdee = tdee * goal_multiplier
+        
         protein = round(1.6 * weight_kg)
-        fat = round((tdee * 0.25) / 9)
-        carbs = round((tdee - (protein * 4 + fat * 9)) / 4)
+        fat = round((adjusted_tdee * 0.25) / 9)
+        carbs = round((adjusted_tdee - (protein * 4 + fat * 9)) / 4)
         
         return response(200, "Daily needs calculated successfully", {
-            "calories": round(tdee),
+            "calories": round(adjusted_tdee),
             "protein_g": protein,
             "fat_g": fat,
             "carbs_g": carbs,
             "bmr": round(bmr),
-            "activity_multiplier": factors[activity_level]
+            "tdee": round(tdee),
+            "activity_multiplier": factors[activity_level],
+            "goal": goal,
+            "goal_adjustment": f"{goal_adjustments[goal]*100:.0f}%"
         })
         
     except Exception as e:
@@ -924,6 +958,7 @@ def get_7_day_history():
         weight_kg = float(profile["weight_kg"])
         height_cm = float(profile["height_cm"])
         activity_level = profile["activity_level"]
+        goal = profile.get("goal", "maintain")
         
         if sex == "male":
             bmr = 10 * weight_kg + 6.25 * height_cm - 5 * age_years + 5
@@ -932,11 +967,21 @@ def get_7_day_history():
         
         factors = {"sedentary": 1.2, "light": 1.375, "moderate": 1.55, "active": 1.725, "extra": 1.9}
         tdee = bmr * factors[activity_level]
-        protein = round(1.6 * weight_kg)
-        fat = round((tdee * 0.25) / 9)
-        carbs = round((tdee - (protein * 4 + fat * 9)) / 4)
         
-        daily_needs = {"calories": round(tdee), "protein_g": protein, "fat_g": fat, "carbs_g": carbs}
+        # Adjust TDEE based on goal
+        goal_adjustments = {
+            "cut": -0.20,      # 20% deficit for weight loss
+            "maintain": 0.0,   # No adjustment for maintenance
+            "bulk": 0.20       # 20% surplus for weight gain
+        }
+        goal_multiplier = 1.0 + goal_adjustments.get(goal, 0.0)
+        adjusted_tdee = tdee * goal_multiplier
+        
+        protein = round(1.6 * weight_kg)
+        fat = round((adjusted_tdee * 0.25) / 9)
+        carbs = round((adjusted_tdee - (protein * 4 + fat * 9)) / 4)
+        
+        daily_needs = {"calories": round(adjusted_tdee), "protein_g": protein, "fat_g": fat, "carbs_g": carbs}
         
         for i in range(7):
             target_date = today - timedelta(days=i)

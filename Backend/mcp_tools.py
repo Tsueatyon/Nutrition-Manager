@@ -106,7 +106,7 @@ def get_today_nutrition(username: str = None) -> str:
 
 @mcp.tool()
 def calculate_daily_needs(sex: str = "male", weight_kg: float = None, height_cm: float = None,
-                         age: int = None, activity_level: str = "moderate") -> str:
+                         age: int = None, activity_level: str = "moderate", goal: str = "maintain") -> str:
     if not all([weight_kg, height_cm, age]):
         return json.dumps({"error": "missing required parameters: weight_kg, height_cm, age"})
 
@@ -115,6 +115,9 @@ def calculate_daily_needs(sex: str = "male", weight_kg: float = None, height_cm:
 
     if activity_level not in ["sedentary", "light", "moderate", "active", "extra"]:
         return json.dumps({"error": "invalid activity_level"})
+    
+    if goal not in ["cut", "maintain", "bulk"]:
+        return json.dumps({"error": "invalid goal. Must be 'cut', 'maintain', or 'bulk'"})
 
     if sex.lower() == "male":
         bmr = 10 * weight_kg + 6.25 * height_cm - 5 * age + 5
@@ -123,18 +126,30 @@ def calculate_daily_needs(sex: str = "male", weight_kg: float = None, height_cm:
 
     factors = {"sedentary": 1.2, "light": 1.375, "moderate": 1.55, "active": 1.725, "extra": 1.9}
     tdee = bmr * factors[activity_level]
+    
+    # Adjust TDEE based on goal
+    goal_adjustments = {
+        "cut": -0.20,      # 20% deficit for weight loss
+        "maintain": 0.0,   # No adjustment for maintenance
+        "bulk": 0.20       # 20% surplus for weight gain
+    }
+    goal_multiplier = 1.0 + goal_adjustments.get(goal, 0.0)
+    adjusted_tdee = tdee * goal_multiplier
 
     protein = round(1.6 * weight_kg)
-    fat = round((tdee * 0.25) / 9)
-    carbs = round((tdee - (protein * 4 + fat * 9)) / 4)
+    fat = round((adjusted_tdee * 0.25) / 9)
+    carbs = round((adjusted_tdee - (protein * 4 + fat * 9)) / 4)
 
     return json.dumps({
-        "calories": round(tdee),
+        "calories": round(adjusted_tdee),
         "protein_g": protein,
         "fat_g": fat,
         "carbs_g": carbs,
         "bmr": round(bmr),
-        "activity_multiplier": factors[activity_level]
+        "tdee": round(tdee),
+        "activity_multiplier": factors[activity_level],
+        "goal": goal,
+        "goal_adjustment": f"{goal_adjustments[goal]*100:.0f}%"
     })
 
 
@@ -156,6 +171,7 @@ def get_user_daily_needs(username: str = None) -> str:
         weight_kg = float(profile["weight_kg"])
         height_cm = float(profile["height_cm"])
         activity_level = profile["activity_level"]
+        goal = profile.get("goal", "maintain")
         
         if not all([weight_kg, height_cm, age_years]):
             return json.dumps({"error": "missing required profile data: weight_kg, height_cm, age"})
@@ -171,24 +187,37 @@ def get_user_daily_needs(username: str = None) -> str:
         
         factors = {"sedentary": 1.2, "light": 1.375, "moderate": 1.55, "active": 1.725, "extra": 1.9}
         tdee = bmr * factors[activity_level]
+        
+        # Adjust TDEE based on goal
+        goal_adjustments = {
+            "cut": -0.20,      # 20% deficit for weight loss
+            "maintain": 0.0,   # No adjustment for maintenance
+            "bulk": 0.20       # 20% surplus for weight gain
+        }
+        goal_multiplier = 1.0 + goal_adjustments.get(goal, 0.0)
+        adjusted_tdee = tdee * goal_multiplier
+        
         protein = round(1.6 * weight_kg)
-        fat = round((tdee * 0.25) / 9)
-        carbs = round((tdee - (protein * 4 + fat * 9)) / 4)
+        fat = round((adjusted_tdee * 0.25) / 9)
+        carbs = round((adjusted_tdee - (protein * 4 + fat * 9)) / 4)
         
         return json.dumps({
-            "calories": round(tdee),
+            "calories": round(adjusted_tdee),
             "protein_g": protein,
             "fat_g": fat,
             "carbs_g": carbs,
             "bmr": round(bmr),
+            "tdee": round(tdee),
             "activity_multiplier": factors[activity_level],
+            "goal": goal,
+            "goal_adjustment": f"{goal_adjustments[goal]*100:.0f}%",
             "profile": {
                 "age_years": age_years,
                 "sex": sex,
                 "weight_kg": weight_kg,
                 "height_cm": height_cm,
                 "activity_level": activity_level,
-                "goal": profile.get("goal")
+                "goal": goal
             }
         })
     except Exception as e:

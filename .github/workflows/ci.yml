@@ -97,7 +97,7 @@ jobs:
           --cpu=1
           --port=8080
           --timeout=300
-          --set-env-vars=SERVER_PORT=8080,DB_HOST=db.qmwevglvexkkijxjguqo.supabase.co,DB_PORT=5432,DB_NAME=postgres,DB_USER=postgres,DB_DEBUG=False,ENVIRONMENT=production
+          --set-env-vars=SERVER_PORT=8080,DB_HOST=db.qmwevglvexkkijxjguqo.supabase.co,DB_PORT=5432,DB_NAME=postgres,DB_USER=postgres,DB_DEBUG=False,ENVIRONMENT=production,CORS_ORIGINS=https://nutrition-manager-git-main-tsueatyons-projects.vercel.app,http://localhost:3000
           --set-secrets=JWT_SECRET_KEY=JWT_SECRET_KEY:latest,DB_PASSWORD=DB_PASSWORD:latest,USDA_API_KEY=USDA_API_KEY:latest,ANTHROPIC_API_KEY=ANTHROPIC_API_KEY:latest
 
     - name: Show Output

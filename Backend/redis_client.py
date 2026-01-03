@@ -2,8 +2,19 @@ import os
 import json
 import redis
 from typing import Optional, Any
+from decimal import Decimal
+from datetime import date, datetime
 
 _redis_client = None
+
+class CustomJSONEncoder(json.JSONEncoder):
+    """Custom JSON encoder to handle Decimal, date, and datetime objects."""
+    def default(self, obj):
+        if isinstance(obj, Decimal):
+            return float(obj)
+        if isinstance(obj, (date, datetime)):
+            return obj.isoformat()
+        return super().default(obj)
 
 def get_redis_client():
     """Get or create Redis client. Works with GCloud Memorystore or local Redis."""
@@ -57,7 +68,7 @@ def cache_set(key: str, value: Any, ttl: int = 3600):
         if not client:
             return False
         
-        client.setex(key, ttl, json.dumps(value))
+        client.setex(key, ttl, json.dumps(value, cls=CustomJSONEncoder))
         return True
     except Exception as e:
         print(f"Cache set error: {e}")

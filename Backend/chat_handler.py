@@ -30,7 +30,7 @@ def get_mcp_tools_for_llm():
         },
         {
             "name": "calculate_daily_needs",
-            "description": "Calculate estimated daily calorie and macro needs using Harris-Benedict formula.",
+            "description": "Calculate estimated daily calorie and macro needs using Harris-Benedict formula. Takes into account activity level and goal (cut/maintain/bulk).",
             "input_schema": {
                 "type": "object",
                 "properties": {
@@ -38,7 +38,8 @@ def get_mcp_tools_for_llm():
                     "weight_kg": {"type": "number", "description": "Weight in kilograms"},
                     "height_cm": {"type": "number", "description": "Height in centimeters"},
                     "age": {"type": "integer", "description": "Age in years"},
-                    "activity_level": {"type": "string", "description": "Activity level", "enum": ["sedentary", "light", "moderate", "active", "extra"]}
+                    "activity_level": {"type": "string", "description": "Activity level", "enum": ["sedentary", "light", "moderate", "active", "extra"]},
+                    "goal": {"type": "string", "description": "Goal: 'cut' for weight loss, 'maintain' for maintenance, 'bulk' for weight gain", "enum": ["cut", "maintain", "bulk"]}
                 },
                 "required": ["sex", "weight_kg", "height_cm", "age", "activity_level"]
             }
