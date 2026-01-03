@@ -96,7 +96,9 @@ jobs:
           --memory=512Mi
           --cpu=1
           --port=8080
-          --set-env-vars=ENVIRONMENT=production
+          --timeout=300
+          --set-env-vars=SERVER_PORT=8080,DB_HOST=db.qmwevglvexkkijxjguqo.supabase.co,DB_PORT=5432,DB_NAME=postgres,DB_USER=postgres,DB_DEBUG=False,ENVIRONMENT=production
+          --set-secrets=JWT_SECRET_KEY=JWT_SECRET_KEY:latest,DB_PASSWORD=DB_PASSWORD:latest,USDA_API_KEY=USDA_API_KEY:latest,ANTHROPIC_API_KEY=ANTHROPIC_API_KEY:latest
 
     - name: Show Output
       run: echo ${{ steps.deploy.outputs.url }}
