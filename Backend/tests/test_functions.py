@@ -678,10 +678,9 @@ class TestSearchFoodInUsda:
     """Test search_food_in_usda function"""
     
     @patch('functions.requests.post')
-    @patch('functions.config')
-    def test_search_food_success(self, mock_config, mock_post):
+    @patch('functions.USDA_API_KEY', new='test_api_key')
+    def test_search_food_success(self, mock_post):
         """Test successful food search"""
-        mock_config.get.return_value = 'test_api_key'
         mock_response = Mock()
         mock_response.status_code = 200
         mock_response.json.return_value = {
@@ -703,10 +702,9 @@ class TestSearchFoodInUsda:
         assert 'calories' in result
     
     @patch('functions.requests.post')
-    @patch('functions.config')
-    def test_search_food_not_found(self, mock_config, mock_post):
+    @patch('functions.USDA_API_KEY', new='test_api_key')
+    def test_search_food_not_found(self, mock_post):
         """Test food search with no results"""
-        mock_config.get.return_value = 'test_api_key'
         mock_response = Mock()
         mock_response.status_code = 200
         mock_response.json.return_value = {'foods': []}
@@ -716,10 +714,9 @@ class TestSearchFoodInUsda:
         assert result is None
     
     @patch('functions.requests.post')
-    @patch('functions.config')
-    def test_search_food_api_error(self, mock_config, mock_post):
+    @patch('functions.USDA_API_KEY', new='test_api_key')
+    def test_search_food_api_error(self, mock_post):
         """Test food search with API error"""
-        mock_config.get.return_value = 'test_api_key'
         mock_response = Mock()
         mock_response.status_code = 500
         mock_post.return_value = mock_response

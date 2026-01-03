@@ -1,7 +1,5 @@
 import json
-import sys
 import os
-import configparser
 import hashlib
 from flask import Request
 from flask_jwt_extended import get_jwt_identity
@@ -9,38 +7,12 @@ from functions import response
 import traceback
 
 from redis_client import cache_get, cache_set, get_cache_key_for_recommendation, get_cache_key_for_chat
-
+from config import LLM_PROVIDER, ANTHROPIC_API_KEY, LLM_MODEL
 
 try:
     from celery_app import process_llm_message
 except ImportError:
     process_llm_message = None
-
-_config_path = None
-
-def set_config_path(path):
-    global _config_path
-    _config_path = path
-
-def get_config():
-    config = configparser.ConfigParser()
-    config_path = _config_path
-    if not config_path and len(sys.argv) > 1:
-        config_path = sys.argv[1]
-    elif not config_path:
-        import os
-        if os.path.exists('config.dev.ini'):
-            config_path = 'config.dev.ini'
-        elif os.path.exists('../config.dev.ini'):
-            config_path = '../config.dev.ini'
-        else:
-            config_path = 'config.dev.ini'
-    
-    if not config_path:
-        raise ValueError("Config file path not set")
-    
-    config.read(config_path, encoding='utf-8')
-    return config
 
 
 def get_mcp_tools_for_llm():
@@ -154,15 +126,9 @@ def handle_chat_message(request: Request):
             print(f"Warning: history is not a list, got {type(conversation_history)}")
             conversation_history = []
         
-        # Step 4: Get config
-        try:
-            cfg = get_config()
-            llm_provider = cfg.get('llm', 'provider', fallback='anthropic').lower()
-            api_key = cfg.get('llm', 'api_key', fallback='')
-        except Exception as e:
-            print(f"Config error: {e}")
-            traceback.print_exc()
-            return response(500, f"Configuration error: {str(e)}")
+        # Step 4: Get config from environment variables
+        llm_provider = LLM_PROVIDER.lower()
+        api_key = ANTHROPIC_API_KEY
         
         if not api_key or api_key in ['YOUR_ANTHROPIC_API_KEY_HERE', 'YOUR_OPENAI_API_KEY_HERE']:
             return response(500, "LLM API key not configured")
@@ -301,7 +267,6 @@ def call_anthropic_api(api_key: str, messages: list, tools: list, username: str 
         import anthropic
         
         client = anthropic.Anthropic(api_key=api_key)
-        cfg = get_config()
         
         anthropic_messages = []
         system_content = None
@@ -324,7 +289,7 @@ def call_anthropic_api(api_key: str, messages: list, tools: list, username: str 
         while iteration < max_iterations:
             try:
                 api_response = client.messages.create(
-                    model=cfg.get('llm', 'model', fallback='claude-3-5-haiku-20241022'),
+                    model=LLM_MODEL,
                     max_tokens=1024,
                     system=system_content,
                     messages=anthropic_messages,

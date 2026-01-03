@@ -1,6 +1,4 @@
 import json
-import sys
-import configparser
 import requests
 from datetime import date, datetime, timedelta
 from decimal import Decimal
@@ -9,9 +7,7 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from flask_jwt_extended import create_access_token, get_jwt_identity
 from sqlalchemy import text
 from database import db
-
-config = configparser.ConfigParser()
-config.read(sys.argv[1])
+from config import USDA_API_KEY
 
 
 def response(code: int, message: str, data: any = None):
@@ -223,7 +219,7 @@ def profile_edit(request: Request):
 
 def search_food_in_usda(food_name: str):
     try:
-        api_key = config.get('api_key', 'USDA_api')
+        api_key = USDA_API_KEY
         search_url = "https://api.nal.usda.gov/fdc/v1/foods/search"
         query_params = {
             "api_key": api_key

@@ -1,7 +1,5 @@
-import sys
 import os
 import json
-import configparser
 from datetime import timedelta, datetime
 from flask import Flask, request
 from flask_cors import CORS
@@ -22,12 +20,19 @@ from functions import (
     get_7_day_history,
     get_daily_needs
 )
-from chat_handler import handle_chat_message, set_config_path
-
-config_file = sys.argv[1]
-config = configparser.ConfigParser()
-config.read(config_file, encoding='utf-8')
-set_config_path(config_file)
+from chat_handler import handle_chat_message
+from config import (
+    JWT_SECRET_KEY,
+    DB_HOST,
+    DB_PORT,
+    DB_NAME,
+    DB_USER,
+    DB_PASSWORD,
+    DB_DEBUG,
+    SERVER_PORT,
+    PORT,
+    ENVIRONMENT
+)
 
 app = Flask(__name__)
 app.config['PROPAGATE_EXCEPTIONS'] = True
@@ -35,18 +40,12 @@ CORS(app, supports_credentials=True)
 
 
 jwt = JWTManager(app)
-app.config['JWT_SECRET_KEY'] = config.get('server', 'JWT_SECRET_KEY')
+app.config['JWT_SECRET_KEY'] = JWT_SECRET_KEY
 app.config['JWT_ACCESS_TOKEN_EXPIRES'] = timedelta(hours=5)
 
-app.config['SQLALCHEMY_DATABASE_URI'] = 'postgresql+psycopg2://%s:%s@%s:%d/%s' % (
-    config.get('postgres', 'user'),
-    config.get('postgres', 'password'),
-    config.get('postgres', 'host'),
-    config.getint('postgres', 'port'),
-    config.get('postgres', 'database')
-)
+app.config['SQLALCHEMY_DATABASE_URI'] = f'postgresql+psycopg2://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}'
 
-app.config['SQLALCHEMY_ECHO'] = config.getboolean('postgres', 'debug')
+app.config['SQLALCHEMY_ECHO'] = DB_DEBUG
 app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {'connect_args': {'connect_timeout': 10}}
 db.init_app(app)
 
@@ -226,7 +225,21 @@ def chat_history():
     except Exception as e:
         return response(500, f'Chat history error: {str(e)}')
 
+@app.route('/')
+def index():
+    return {
+        "status": "healthy",
+        "service": "nutrition-app-backend",
+        "environment": ENVIRONMENT
+    }
+
+@app.route('/health')
+def health():
+    """Health check endpoint for Cloud Run"""
+    return {"status": "ok"}
+
 if __name__ == '__main__':
-    port = int(os.environ.get('PORT', config.getint('server', 'port') if config.has_section('server') else 8080))
+    # Use PORT environment variable (Cloud Run sets this)
+    port = int(os.getenv('PORT', SERVER_PORT))
     server = pywsgi.WSGIServer(("0.0.0.0", port), app)
     server.serve_forever()
