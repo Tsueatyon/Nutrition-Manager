@@ -2,7 +2,7 @@ import axios from 'axios';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 
   (import.meta.env.PROD 
-    ? 'https://nutrition-app-669815551448.us-central1.run.app'
+    ? 'https://nutrition-app-backend-f64ruelidq-uc.a.run.app'
     : 'http://localhost:9000');
 
 const api = axios.create({
