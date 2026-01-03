@@ -65,13 +65,14 @@ print(f"Loaded config from: {env_file if os.path.exists(env_file) or os.path.exi
 app = Flask(__name__)
 app.config['PROPAGATE_EXCEPTIONS'] = True
 CORS_ORIGINS = os.getenv('CORS_ORIGINS', 'http://localhost:3000').split(',')
+print(f"CORS Configuration: {CORS_ORIGINS}")
 
-# Update the CORS line to:
 CORS(app,
      supports_credentials=True,
      origins=CORS_ORIGINS,
      allow_headers=['Content-Type', 'Authorization'],
-     methods=['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'])
+     methods=['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS']
+     )
 
 jwt = JWTManager(app)
 app.config['JWT_SECRET_KEY'] = JWT_SECRET_KEY
