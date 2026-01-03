@@ -7,7 +7,7 @@ from functions import response
 import traceback
 
 from redis_client import cache_get, cache_set, get_cache_key_for_recommendation, get_cache_key_for_chat
-from config import LLM_PROVIDER, ANTHROPIC_API_KEY, LLM_MODEL
+
 
 try:
     from celery_app import process_llm_message
@@ -126,9 +126,14 @@ def handle_chat_message(request: Request):
             print(f"Warning: history is not a list, got {type(conversation_history)}")
             conversation_history = []
         
-        # Step 4: Get config from environment variables
-        llm_provider = LLM_PROVIDER.lower()
-        api_key = ANTHROPIC_API_KEY
+        # Step 4: Get config
+        try:
+            llm_provider = os.getenv('LLM_PROVIDER', 'anthropic').lower()
+            api_key = os.getenv('ANTHROPIC_API_KEY')
+        except Exception as e:
+            print(f"Config error: {e}")
+            traceback.print_exc()
+            return response(500, f"Configuration error: {str(e)}")
         
         if not api_key or api_key in ['YOUR_ANTHROPIC_API_KEY_HERE', 'YOUR_OPENAI_API_KEY_HERE']:
             return response(500, "LLM API key not configured")
@@ -289,7 +294,7 @@ def call_anthropic_api(api_key: str, messages: list, tools: list, username: str 
         while iteration < max_iterations:
             try:
                 api_response = client.messages.create(
-                    model=LLM_MODEL,
+                    model=os.getenv('LLM_MODEL', 'claude-3-5-haiku-20241022'),
                     max_tokens=1024,
                     system=system_content,
                     messages=anthropic_messages,

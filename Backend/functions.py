@@ -1,4 +1,5 @@
 import json
+import os
 import requests
 from datetime import date, datetime, timedelta
 from decimal import Decimal
@@ -7,7 +8,6 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from flask_jwt_extended import create_access_token, get_jwt_identity
 from sqlalchemy import text
 from database import db
-from config import USDA_API_KEY
 
 
 def response(code: int, message: str, data: any = None):
@@ -219,7 +219,10 @@ def profile_edit(request: Request):
 
 def search_food_in_usda(food_name: str):
     try:
-        api_key = USDA_API_KEY
+        api_key = os.getenv('USDA_API_KEY')
+        if not api_key:
+            print("USDA API key not configured")
+            return None
         search_url = "https://api.nal.usda.gov/fdc/v1/foods/search"
         query_params = {
             "api_key": api_key

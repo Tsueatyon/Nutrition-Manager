@@ -5,6 +5,7 @@ from flask import Flask, request
 from flask_cors import CORS
 from flask_jwt_extended import JWTManager, get_jwt_identity, verify_jwt_in_request, jwt_required
 from gevent import pywsgi
+from dotenv import load_dotenv
 from database import db
 from functions import (
     register_user,
@@ -21,18 +22,45 @@ from functions import (
     get_daily_needs
 )
 from chat_handler import handle_chat_message
-from config import (
-    JWT_SECRET_KEY,
-    DB_HOST,
-    DB_PORT,
-    DB_NAME,
-    DB_USER,
-    DB_PASSWORD,
-    DB_DEBUG,
-    SERVER_PORT,
-    PORT,
-    ENVIRONMENT
-)
+
+# Determine which .env file to load
+# Default to .env.dev if no ENV_FILE specified
+env_file = os.getenv('ENV_FILE', '.env.dev')
+
+# Load environment variables from the appropriate .env file
+# This only loads if the file exists (won't break in Cloud Run)
+if os.path.exists(env_file):
+    load_dotenv(env_file)
+elif os.path.exists(f'Backend/{env_file}'):
+    load_dotenv(f'Backend/{env_file}')
+else:
+    # Try to load from current directory or parent
+    load_dotenv(env_file, override=False)
+
+# Now read all config from environment variables
+SERVER_PORT = int(os.getenv('SERVER_PORT', os.getenv('PORT', 8080)))
+JWT_SECRET_KEY = os.getenv('JWT_SECRET_KEY')
+
+# Database Configuration
+DB_HOST = os.getenv('DB_HOST')
+DB_PORT = int(os.getenv('DB_PORT', 5432))
+DB_NAME = os.getenv('DB_NAME')
+DB_USER = os.getenv('DB_USER')
+DB_PASSWORD = os.getenv('DB_PASSWORD')
+DB_DEBUG = os.getenv('DB_DEBUG', 'False').lower() == 'true'
+
+# Environment
+ENVIRONMENT = os.getenv('ENVIRONMENT', 'development')
+
+# Validate required environment variables
+required_vars = ['JWT_SECRET_KEY', 'DB_HOST', 'DB_PASSWORD']
+missing_vars = [var for var in required_vars if not os.getenv(var)]
+
+if missing_vars:
+    raise ValueError(f"Missing required environment variables: {', '.join(missing_vars)}")
+
+print(f"Starting in {ENVIRONMENT} mode")
+print(f"Loaded config from: {env_file if os.path.exists(env_file) or os.path.exists(f'Backend/{env_file}') else 'environment variables'}")
 
 app = Flask(__name__)
 app.config['PROPAGATE_EXCEPTIONS'] = True
@@ -225,21 +253,8 @@ def chat_history():
     except Exception as e:
         return response(500, f'Chat history error: {str(e)}')
 
-@app.route('/')
-def index():
-    return {
-        "status": "healthy",
-        "service": "nutrition-app-backend",
-        "environment": ENVIRONMENT
-    }
-
-@app.route('/health')
-def health():
-    """Health check endpoint for Cloud Run"""
-    return {"status": "ok"}
-
 if __name__ == '__main__':
-    # Use PORT environment variable (Cloud Run sets this)
+    # Use PORT environment variable (Cloud Run sets this) or SERVER_PORT from config
     port = int(os.getenv('PORT', SERVER_PORT))
     server = pywsgi.WSGIServer(("0.0.0.0", port), app)
     server.serve_forever()
