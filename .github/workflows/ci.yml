@@ -105,7 +105,7 @@ jobs:
           DB_USER=postgres
           DB_DEBUG=False
           ENVIRONMENT=production
-          CORS_ORIGINS=https://nutrition-manager-git-main-tsueatyons-projects.vercel.app,http://localhost:3000
+          CORS_ORIGINS=https://nutrition-manager-tau.vercel.app,http://localhost:3000
         secrets: |
           JWT_SECRET_KEY=JWT_SECRET_KEY:latest
           DB_PASSWORD=DB_PASSWORD:latest
