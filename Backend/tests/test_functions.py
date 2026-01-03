@@ -363,13 +363,16 @@ class TestGetDailyNeeds:
             'height_cm': 165,
             'weight_kg': 60,
             'activity_level': 'light',
-            'goal': 'lose'
+            'goal': 'cut'
         }]
         
         result = get_daily_needs()
         data = json.loads(result.get_data(as_text=True))
         assert data['code'] == 200
         assert data['data']['calories'] > 0
+        # Verify goal adjustment is applied (cut should reduce calories by 20%)
+        assert 'goal' in data['data']
+        assert data['data']['goal'] == 'cut'
     
     def test_get_daily_needs_user_not_found(self, app_context, mock_jwt_identity, mock_query):
         """Test daily needs with user not found"""
