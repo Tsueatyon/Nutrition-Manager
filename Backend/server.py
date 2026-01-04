@@ -82,7 +82,7 @@ def after_request(resp):
 
 @app.before_request
 def before_request():
-    public_endpoints = ['/login', '/register']
+    public_endpoints = ['/login', '/register', '/debug/db']
     if request.path in public_endpoints:
         return None
     try:
