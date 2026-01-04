@@ -374,7 +374,7 @@ def insert_log(request: Request):
             "SELECT id, name, calories, protein, carbs, fat, serving_unit FROM food WHERE LOWER(name) = LOWER(:food_name)",
             {"food_name": food_name}
         )
-
+        print(food_check)
         if food_check:
             food_id = food_check[0]["id"]
             food_serving_unit = food_check[0].get("serving_unit", "g")
@@ -383,28 +383,51 @@ def insert_log(request: Request):
             if not usda_food:
                 return response(400, f"Food '{food_name}' not found in local database or USDA API")
 
-            try:
-                insert_food_sql = """
-                    INSERT INTO food (name, calories, protein, carbs, fat, serving_unit)
-                    VALUES (:name, :calories, :protein, :carbs, :fat, :serving_unit)
-                    RETURNING id
-                """
-                food_result = execute(insert_food_sql, {
-                    "name": usda_food['name'],
-                    "calories": usda_food['calories'],
-                    "protein": usda_food['protein'],
-                    "carbs": usda_food['carbs'],
-                    "fat": usda_food['fat'],
-                    "serving_unit": usda_food['serving_unit']
-                })
-                food_row = food_result.fetchone()
-                if not food_row:
-                    return response(500, "Failed to insert food from USDA")
-                food_id = food_row['id']
-                food_serving_unit = usda_food['serving_unit']
-            except Exception as e:
-                db.session.rollback()
-                return response(500, "Failed to insert food from USDA API")
+            # Check if the USDA food name already exists (might be different from user's input)
+            usda_food_check = query(
+                "SELECT id, name, serving_unit FROM food WHERE LOWER(name) = LOWER(:food_name)",
+                {"food_name": usda_food['name']}
+            )
+            if usda_food_check:
+                # Food already exists, use existing food_id
+                food_id = usda_food_check[0]["id"]
+                food_serving_unit = usda_food_check[0].get("serving_unit", "g")
+            else:
+                try:
+                    insert_food_sql = """
+                        INSERT INTO food (name, calories, protein, carbs, fat, serving_unit)
+                        VALUES (:name, :calories, :protein, :carbs, :fat, :serving_unit)
+                        RETURNING id
+                    """
+                    food_result = execute(insert_food_sql, {
+                        "name": usda_food['name'],
+                        "calories": usda_food['calories'],
+                        "protein": usda_food['protein'],
+                        "carbs": usda_food['carbs'],
+                        "fat": usda_food['fat'],
+                        "serving_unit": usda_food['serving_unit']
+                    })
+                    food_row = food_result.fetchone()
+                    if not food_row:
+                        return response(500, "Failed to insert food from USDA")
+                    food_id = food_row['id']
+                    food_serving_unit = usda_food['serving_unit']
+                except Exception as e:
+                    db.session.rollback()
+                    print(e)
+                    # If insert failed due to duplicate, try to fetch the existing food
+                    if "duplicate key" in str(e).lower() or "unique constraint" in str(e).lower():
+                        retry_check = query(
+                            "SELECT id, serving_unit FROM food WHERE LOWER(name) = LOWER(:food_name)",
+                            {"food_name": usda_food['name']}
+                        )
+                        if retry_check:
+                            food_id = retry_check[0]["id"]
+                            food_serving_unit = retry_check[0].get("serving_unit", "g")
+                        else:
+                            return response(500, "Failed to insert food from USDA API")
+                    else:
+                        return response(500, "Failed to insert food from USDA API")
         sql = """
             INSERT INTO user_intake 
                 (user_id, food_id, quantity, intake_date, meal_type)
@@ -485,27 +508,47 @@ def update_log(request: Request):
                 if not usda_food:
                     return response(400, f"Food '{food_name}' not found in local database or USDA API")
                 
-                try:
-                    insert_food_sql = """
-                        INSERT INTO food (name, calories, protein, carbs, fat, serving_unit)
-                        VALUES (:name, :calories, :protein, :carbs, :fat, :serving_unit)
-                        RETURNING id
-                    """
-                    food_result = execute(insert_food_sql, {
-                        "name": usda_food['name'],
-                        "calories": usda_food['calories'],
-                        "protein": usda_food['protein'],
-                        "carbs": usda_food['carbs'],
-                        "fat": usda_food['fat'],
-                        "serving_unit": usda_food['serving_unit']
-                    })
-                    food_row = food_result.fetchone()
-                    if not food_row:
-                        return response(500, "Failed to insert food from USDA")
-                    food_id = food_row['id']
-                except Exception as e:
-                    db.session.rollback()
-                    return response(500, "Failed to insert food from USDA API")
+                # Check if the USDA food name already exists (might be different from user's input)
+                usda_food_check = query(
+                    "SELECT id FROM food WHERE LOWER(name) = LOWER(:food_name)",
+                    {"food_name": usda_food['name']}
+                )
+                if usda_food_check:
+                    # Food already exists, use existing food_id
+                    food_id = usda_food_check[0]["id"]
+                else:
+                    try:
+                        insert_food_sql = """
+                            INSERT INTO food (name, calories, protein, carbs, fat, serving_unit)
+                            VALUES (:name, :calories, :protein, :carbs, :fat, :serving_unit)
+                            RETURNING id
+                        """
+                        food_result = execute(insert_food_sql, {
+                            "name": usda_food['name'],
+                            "calories": usda_food['calories'],
+                            "protein": usda_food['protein'],
+                            "carbs": usda_food['carbs'],
+                            "fat": usda_food['fat'],
+                            "serving_unit": usda_food['serving_unit']
+                        })
+                        food_row = food_result.fetchone()
+                        if not food_row:
+                            return response(500, "Failed to insert food from USDA")
+                        food_id = food_row['id']
+                    except Exception as e:
+                        db.session.rollback()
+                        # If insert failed due to duplicate, try to fetch the existing food
+                        if "duplicate key" in str(e).lower() or "unique constraint" in str(e).lower():
+                            retry_check = query(
+                                "SELECT id FROM food WHERE LOWER(name) = LOWER(:food_name)",
+                                {"food_name": usda_food['name']}
+                            )
+                            if retry_check:
+                                food_id = retry_check[0]["id"]
+                            else:
+                                return response(500, "Failed to insert food from USDA API")
+                        else:
+                            return response(500, "Failed to insert food from USDA API")
 
         allowed_fields = {"food_id", "quantity", "intake_date", "meal_type"}
         updates = {k: v for k, v in data.items() if k in allowed_fields}
@@ -575,7 +618,6 @@ def update_log(request: Request):
             if food_query:
                 result_dict["food_name"] = food_query[0]["name"]
 
-        # Invalidate cache for the affected date (this also invalidates 7-day history cache)
         try:
             from redis_client import invalidate_nutrition_cache
             if affected_date:
@@ -652,8 +694,6 @@ def retrieve_log(time_constraint: date = None):
         db.session.rollback()
         print("Retrieve log error:", e)
         return response(500, "Failed to retrieve logs")
-
-
 def delete_log(request: Request):
     username = get_jwt_identity()
     data = request.get_json()
@@ -720,7 +760,6 @@ def delete_log(request: Request):
         db.session.rollback()
         print("Delete log error:", e)
         return response(500, "Failed to delete intake entry")
-
 def fetch_intake_rows(user_id: int, target_date: date):
     sql = """
         SELECT
@@ -739,8 +778,6 @@ def fetch_intake_rows(user_id: int, target_date: date):
         "user_id": user_id,
         "target_date": target_date
     })
-
-
 def get_daily_nutrition(target_date: date = None):
     username = get_jwt_identity()
     if not target_date:

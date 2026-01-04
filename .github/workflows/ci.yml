@@ -99,10 +99,10 @@ jobs:
           --timeout=300
         env_vars: |
           SERVER_PORT=8080
-          DB_HOST=db.qmwevglvexkkijxjguqo.supabase.co
-          DB_PORT=5432
+          DB_HOST=aws-0-us-west-2.pooler.supabase.com
+          DB_PORT=6543
           DB_NAME=postgres
-          DB_USER=postgres
+          DB_USER=postgres.qmwevglvexkkijxjguqo
           DB_DEBUG=False
           ENVIRONMENT=production
           CORS_ORIGINS=https://nutrition-manager-tau.vercel.app
