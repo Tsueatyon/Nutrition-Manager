@@ -170,7 +170,6 @@ def get_my_profile():
         print(f"Get profile error: {e}")
         return response(500, "Failed to retrieve profile")
 
-
 def profile_edit(request: Request):
     current_username = get_jwt_identity()
 
@@ -186,8 +185,6 @@ def profile_edit(request: Request):
     for key, value in data.items():
         if key not in allowed_fields:
             return response(400, f'Cannot update field: {key}')
-
-        # Convert age to int if provided
         if key == 'age':
             try:
                 value = int(value)
@@ -209,22 +206,16 @@ def profile_edit(request: Request):
         if result.rowcount == 0:
             return response(400, 'User not found')
 
-        # Check if any fields that affect daily needs were updated
-        fields_affecting_daily_needs = {'age', 'sex', 'height_cm', 'weight_kg', 'activity_level', 'goal'}
-        affects_daily_needs = bool(updates.keys() & fields_affecting_daily_needs)
-        
-        # Invalidate cache for daily needs if relevant fields were updated
-        # This ensures daily needs are recalculated with new profile data
-        if affects_daily_needs:
-            try:
-                from redis_client import invalidate_nutrition_cache, cache_delete, get_cache_key_for_7day_history
-                # Invalidate 7-day history cache which contains daily_needs
-                cache_delete(get_cache_key_for_7day_history(current_username))
-                # Also invalidate all nutrition cache to ensure fresh data
-                invalidate_nutrition_cache(current_username)
-                print(f"Cache invalidated for user {current_username} due to profile fields affecting daily needs: {list(updates.keys())}")
-            except Exception as e:
-                print(f"Cache invalidation error in profile_edit: {e}")
+        # Invalidate cache for daily needs (7-day history cache contains daily_needs)
+        # Also invalidate all nutrition-related cache since profile affects daily needs calculation
+        try:
+            from redis_client import invalidate_nutrition_cache, cache_delete, get_cache_key_for_7day_history
+            # Invalidate 7-day history cache which contains daily_needs
+            cache_delete(get_cache_key_for_7day_history(current_username))
+            # Also invalidate all nutrition cache to ensure fresh data
+            invalidate_nutrition_cache(current_username)
+        except Exception as e:
+            print(f"Cache invalidation error in profile_edit: {e}")
 
         return response(200, 'Profile updated successfully')
 
@@ -366,7 +357,6 @@ def insert_log(request: Request):
         return response(400, "Cannot log future intake dates")
 
     try:
-        # Get user ID
         sql_user = "SELECT id FROM users WHERE username = :username"
         res = query(sql_user, {"username": username})
         if not res:
@@ -438,7 +428,7 @@ def insert_log(request: Request):
             return response(500, "Failed to insert intake entry")
 
         row_dict = dict(inserted_row)
-        # Get date before converting to string for cache invalidation
+
         affected_date = row_dict.get("intake_date")
         if row_dict.get("intake_date"):
             row_dict["intake_date"] = row_dict["intake_date"].isoformat()
@@ -717,7 +707,6 @@ def delete_log(request: Request):
             if food_query:
                 result_dict["food_name"] = food_query[0]["name"]
 
-        # Invalidate cache for the affected date
         try:
             from redis_client import invalidate_nutrition_cache
             if affected_date:
@@ -731,7 +720,6 @@ def delete_log(request: Request):
         db.session.rollback()
         print("Delete log error:", e)
         return response(500, "Failed to delete intake entry")
-
 
 def fetch_intake_rows(user_id: int, target_date: date):
     sql = """
@@ -779,12 +767,11 @@ def get_daily_nutrition(target_date: date = None):
         intake_rows = fetch_intake_rows(user_id, target_date)
 
         if not intake_rows:
-            # Cache None result as well (to avoid repeated DB queries)
             result = None
             try:
                 from redis_client import cache_set, get_cache_key_for_daily_nutrition
                 cache_key = get_cache_key_for_daily_nutrition(username, str(target_date))
-                cache_set(cache_key, None, ttl=86400)  # Cache for 24 hours
+                cache_set(cache_key, None, ttl=86400)
             except ImportError:
                 pass
             return result
@@ -805,8 +792,7 @@ def get_daily_nutrition(target_date: date = None):
             total["fat"] += fat * factor
 
         total = {k: round(v, 2) for k, v in total.items()}
-        
-        # Cache the result (24 hour TTL)
+
         try:
             from redis_client import cache_set, get_cache_key_for_daily_nutrition
             cache_key = get_cache_key_for_daily_nutrition(username, str(target_date))
@@ -846,8 +832,6 @@ def dv_summation():
         db.session.rollback()
         print('Calculate dv nutrition error:', e)
         return response(500, 'Failed to calculate daily nutrition')
-
-
 def get_daily_needs():
     username = get_jwt_identity()
     

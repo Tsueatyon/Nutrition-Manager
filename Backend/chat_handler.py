@@ -9,12 +9,6 @@ import traceback
 from redis_client import cache_get, cache_set, get_cache_key_for_recommendation, get_cache_key_for_chat
 
 
-try:
-    from celery_app import process_llm_message
-except ImportError:
-    process_llm_message = None
-
-
 def get_mcp_tools_for_llm():
     """Convert MCP tools to Anthropic function calling format."""
     tools = [
@@ -87,12 +81,10 @@ def call_mcp_tool(tool_name: str, arguments: dict, username: str = None) -> str:
 def handle_chat_message(request: Request):
     """Handle chat message with extensive error handling."""
     try:
-        # Step 1: Authentication
         username = get_jwt_identity()
         if not username:
             return response(401, "Authentication required")
-        
-        # Step 2: Parse request body
+
         try:
             data = request.get_json()
         except Exception as e:
@@ -104,12 +96,11 @@ def handle_chat_message(request: Request):
         
         if 'message' not in data:
             return response(400, "Missing 'message' field in request body")
-        
-        # Step 3: Extract and validate message
+
+
         user_message = data.get('message')
         conversation_history = data.get('history', [])
-        
-        # Validate message
+
         if user_message is None:
             return response(400, "Message field cannot be null")
         
@@ -126,8 +117,7 @@ def handle_chat_message(request: Request):
         if not isinstance(conversation_history, list):
             print(f"Warning: history is not a list, got {type(conversation_history)}")
             conversation_history = []
-        
-        # Step 4: Get config
+
         try:
             llm_provider = os.getenv('LLM_PROVIDER', 'anthropic').lower()
             api_key = os.getenv('ANTHROPIC_API_KEY')
@@ -138,8 +128,7 @@ def handle_chat_message(request: Request):
         
         if not api_key or api_key in ['YOUR_ANTHROPIC_API_KEY_HERE', 'YOUR_OPENAI_API_KEY_HERE']:
             return response(500, "LLM API key not configured")
-        
-        # Step 5: Build messages array
+
         try:
             tools = get_mcp_tools_for_llm()
             messages = []
@@ -207,54 +196,38 @@ Use the available tools to get user information when needed. Be conversational a
         except Exception as e:
             print(f"Failed to cache chat history: {e}")
         
-        # Step 8: Process LLM call in background
+        # Step 8: Process LLM call synchronously
         try:
-            use_background = os.getenv('USE_BACKGROUND_JOBS', 'false').lower() == 'true'
+            if llm_provider == 'anthropic':
+                result = call_anthropic_api(api_key, messages, tools, username)
+            else:
+                return response(400, f"Unsupported LLM provider: {llm_provider}")
             
-            if use_background and process_llm_message:
-                try:
-                    task = process_llm_message.delay(api_key, messages, tools, username, llm_provider)
-                    return response(202, "Request accepted, processing in background", {
-                        "task_id": task.id,
-                        "status": "processing",
-                        "message": "Your request is being processed. Please check back in a moment."
-                    })
-                except Exception as e:
-                    print(f"Failed to start background task: {e}. Falling back to sync.")
-                    use_background = False
-            
-            if not use_background:
-                # Fallback to synchronous processing
-                if llm_provider == 'anthropic':
-                    result = call_anthropic_api(api_key, messages, tools, username)
+            # Handle result (can be dict with error or success data)
+            if isinstance(result, dict):
+                if "error" in result:
+                    return response(500, result["error"])
                 else:
-                    return response(400, f"Unsupported LLM provider: {llm_provider}")
-                
-                # Handle result (can be dict with error or success data)
-                if isinstance(result, dict):
-                    if "error" in result:
-                        return response(500, result["error"])
-                    else:
-                        # Cache successful responses
-                        cache_set(cache_key, result, ttl=3600)
-                        # Update chat history with AI response
-                        try:
-                            chat_key = get_cache_key_for_chat(username)
-                            updated_history = chat_history + [{"role": "assistant", "content": result.get("message", "")}]
-                            cache_set(chat_key, updated_history, ttl=86400 * 7)  # 7 days
-                        except Exception as e:
-                            print(f"Failed to update chat history with AI response: {e}")
-                        return response(200, "Chat response generated", result)
-                else:
-                    # Legacy response object
-                    if result.status_code == 200:
-                        try:
-                            result_data = json.loads(result.get_data(as_text=True))
-                            if result_data.get('code') == 200:
-                                cache_set(cache_key, result_data.get('data', {}), ttl=3600)
-                        except:
-                            pass
-                    return result
+                    # Cache successful responses
+                    cache_set(cache_key, result, ttl=3600)
+                    # Update chat history with AI response
+                    try:
+                        chat_key = get_cache_key_for_chat(username)
+                        updated_history = chat_history + [{"role": "assistant", "content": result.get("message", "")}]
+                        cache_set(chat_key, updated_history, ttl=86400 * 7)  # 7 days
+                    except Exception as e:
+                        print(f"Failed to update chat history with AI response: {e}")
+                    return response(200, "Chat response generated", result)
+            else:
+                # Legacy response object
+                if result.status_code == 200:
+                    try:
+                        result_data = json.loads(result.get_data(as_text=True))
+                        if result_data.get('code') == 200:
+                            cache_set(cache_key, result_data.get('data', {}), ttl=3600)
+                    except:
+                        pass
+                return result
         except Exception as e:
             print(f"LLM call error: {e}")
             traceback.print_exc()
@@ -322,7 +295,7 @@ def call_anthropic_api(api_key: str, messages: list, tools: list, username: str 
             
             assistant_content = []
             tool_use_blocks = []
-            
+
             for content_block in api_response.content:
                 if content_block.type == "text":
                     assistant_content.append(content_block.text)
@@ -370,7 +343,6 @@ def call_anthropic_api(api_key: str, messages: list, tools: list, username: str 
                         })
                 
                 anthropic_messages.append({"role": "user", "content": tool_results})
-                
                 iteration += 1
                 continue
             

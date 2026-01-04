@@ -1,5 +1,4 @@
 import os
-import json
 from datetime import timedelta, datetime
 from flask import Flask, request
 from flask_cors import CORS
@@ -22,13 +21,9 @@ from functions import (
     get_daily_needs
 )
 from chat_handler import handle_chat_message
-
-# Determine which .env file to load
-# Default to .env.dev if no ENV_FILE specified
 env_file = os.getenv('ENV_FILE', '.env.dev')
 
-# Load environment variables from the appropriate .env file
-# This only loads if the file exists (won't break in Cloud Run)
+
 if os.path.exists(env_file):
     load_dotenv(env_file)
 elif os.path.exists(f'Backend/{env_file}'):
@@ -41,7 +36,7 @@ else:
 SERVER_PORT = int(os.getenv('SERVER_PORT', os.getenv('PORT', 8080)))
 JWT_SECRET_KEY = os.getenv('JWT_SECRET_KEY')
 
-# Database Configuration
+# Database
 DB_HOST = os.getenv('DB_HOST')
 DB_PORT = int(os.getenv('DB_PORT', 5432))
 DB_NAME = os.getenv('DB_NAME')
@@ -52,16 +47,7 @@ DB_DEBUG = os.getenv('DB_DEBUG', 'False').lower() == 'true'
 # Environment
 ENVIRONMENT = os.getenv('ENVIRONMENT', 'development')
 
-# Validate required environment variables
-required_vars = ['JWT_SECRET_KEY', 'DB_HOST', 'DB_PASSWORD']
-missing_vars = [var for var in required_vars if not os.getenv(var)]
-
-if missing_vars:
-    raise ValueError(f"Missing required environment variables: {', '.join(missing_vars)}")
-
 print(f"Starting in {ENVIRONMENT} mode")
-print(f"Loaded config from: {env_file if os.path.exists(env_file) or os.path.exists(f'Backend/{env_file}') else 'environment variables'}")
-
 app = Flask(__name__)
 app.config['PROPAGATE_EXCEPTIONS'] = True
 CORS_ORIGINS = os.getenv('CORS_ORIGINS', 'http://localhost:3000').split(',')
@@ -72,14 +58,12 @@ CORS(app,
      origins=CORS_ORIGINS,
      allow_headers=['Content-Type', 'Authorization'],
      methods=['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS']
-     )
+)
 
 jwt = JWTManager(app)
 app.config['JWT_SECRET_KEY'] = JWT_SECRET_KEY
 app.config['JWT_ACCESS_TOKEN_EXPIRES'] = timedelta(hours=5)
-
 app.config['SQLALCHEMY_DATABASE_URI'] = f'postgresql+psycopg2://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}'
-
 app.config['SQLALCHEMY_ECHO'] = DB_DEBUG
 app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {'connect_args': {'connect_timeout': 10}}
 db.init_app(app)
@@ -89,7 +73,7 @@ try:
     from redis_client import get_redis_client
     get_redis_client()
 except Exception as e:
-    print(f"Redis initialization warning: {e}. Continuing without cache.")
+    print(f"Redis initialization failed")
 
 @app.after_request
 def after_request(resp):
@@ -191,32 +175,6 @@ def chat():
     except Exception as e:
         return response(500, f'Chat endpoint error: {str(e)}')
 
-@app.route('/api/chat/task/<task_id>', methods=['GET'])
-@jwt_required()
-def chat_task_status(task_id):
-    """Check status of background LLM task."""
-    try:
-        try:
-            from celery_app import celery_app
-            from celery.result import AsyncResult
-        except ImportError:
-            return response(503, "Background jobs not available")
-        
-        task_result = AsyncResult(task_id, app=celery_app)
-        
-        if task_result.ready():
-            if task_result.successful():
-                result = task_result.result
-                if isinstance(result, dict) and "error" in result:
-                    return response(500, result["error"])
-                return response(200, "Chat response generated", result)
-            else:
-                return response(500, f"Task failed: {str(task_result.info)}")
-        else:
-            return response(202, "Task still processing", {"status": "processing"})
-    except Exception as e:
-        return response(500, f'Task status error: {str(e)}')
-
 @app.route('/api/chat/history', methods=['GET', 'POST', 'DELETE'])
 @jwt_required()
 def chat_history():
@@ -259,6 +217,17 @@ def chat_history():
             
     except Exception as e:
         return response(500, f'Chat history error: {str(e)}')
+
+@app.route('/debug/db')
+def debug_db():
+    try:
+        # Test database connection
+        from sqlalchemy import text
+        with db.engine.connect() as conn:
+            result = conn.execute(text("SELECT 1"))
+            return {"status": "ok", "db_connected": True}
+    except Exception as e:
+        return {"status": "error", "message": str(e), "db_connected": False}
 
 if __name__ == '__main__':
     # Use PORT environment variable (Cloud Run sets this) or SERVER_PORT from config

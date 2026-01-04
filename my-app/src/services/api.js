@@ -78,7 +78,6 @@ export const historyAPI = {
 
 export const chatAPI = {
   sendMessage: (message, history) => api.post('/api/chat', { message, history }),
-  getTaskStatus: (taskId) => api.get(`/api/chat/task/${taskId}`),
   getHistory: () => api.get('/api/chat/history'),
   saveHistory: (history) => api.post('/api/chat/history', { history }),
   clearHistory: () => api.delete('/api/chat/history'),

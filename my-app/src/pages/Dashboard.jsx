@@ -102,9 +102,6 @@ export default function DashboardPage() {
         setChatMessages(updatedMessagesWithResponse);
         saveChatHistory(updatedMessagesWithResponse);
         setChatLoading(false);
-      } else if (data.code === 202 && data.data.task_id) {
-        // Background job started, poll for result
-        pollTaskStatus(data.data.task_id, updatedMessages);
       } else {
         setError(data.message || 'Failed to get response');
         setChatLoading(false);
@@ -113,42 +110,6 @@ export default function DashboardPage() {
       setError(err.response?.data?.message || 'Failed to send message. Please try again.');
       setChatLoading(false);
     }
-  };
-
-  const pollTaskStatus = async (taskId, currentMessages) => {
-    const maxAttempts = 30;
-    let attempts = 0;
-    
-    const poll = async () => {
-      try {
-        const response = await chatAPI.getTaskStatus(taskId);
-        const data = response.data;
-        
-        if (data.code === 200) {
-          const assistantMessage = { role: 'assistant', content: data.data.message };
-          const updatedMessagesWithResponse = [...currentMessages, assistantMessage];
-          setChatMessages(updatedMessagesWithResponse);
-          saveChatHistory(updatedMessagesWithResponse);
-          setChatLoading(false);
-        } else if (data.code === 202 && attempts < maxAttempts) {
-          attempts++;
-          setTimeout(poll, 1000);
-        } else {
-          setError('Request timed out. Please try again.');
-          setChatLoading(false);
-        }
-      } catch (err) {
-        if (attempts < maxAttempts) {
-          attempts++;
-          setTimeout(poll, 1000);
-        } else {
-          setError('Failed to get response. Please try again.');
-          setChatLoading(false);
-        }
-      }
-    };
-    
-    poll();
   };
 
   if (loading) {

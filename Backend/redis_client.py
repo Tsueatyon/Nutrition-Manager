@@ -8,7 +8,6 @@ from datetime import date, datetime
 _redis_client = None
 
 class CustomJSONEncoder(json.JSONEncoder):
-    """Custom JSON encoder to handle Decimal, date, and datetime objects."""
     def default(self, obj):
         if isinstance(obj, Decimal):
             return float(obj)
@@ -114,13 +113,8 @@ def invalidate_nutrition_cache(username: str, affected_date: str = None):
         client = get_redis_client()
         if not client:
             return
-        
-        # Always invalidate 7-day history cache
         cache_delete(get_cache_key_for_7day_history(username))
-        
-        # Invalidate logs cache (all variations)
         cache_delete(get_cache_key_for_logs(username))
-        cache_delete(get_cache_key_for_logs(username, "all"))
         if affected_date:
             cache_delete(get_cache_key_for_logs(username, affected_date))
         
