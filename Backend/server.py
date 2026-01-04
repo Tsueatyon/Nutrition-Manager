@@ -59,11 +59,22 @@ CORS(app,
      allow_headers=['Content-Type', 'Authorization'],
      methods=['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS']
 )
-
+DB_PASSWORD = os.getenv('DB_PASSWORD')
 jwt = JWTManager(app)
 app.config['JWT_SECRET_KEY'] = JWT_SECRET_KEY
 app.config['JWT_ACCESS_TOKEN_EXPIRES'] = timedelta(hours=5)
-app.config['SQLALCHEMY_DATABASE_URI'] = f'postgresql+psycopg2://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}'
+if os.getenv('ENVIRONMENT') == 'development':
+    app.config[
+        'SQLALCHEMY_DATABASE_URI'
+    ] = f'postgresql+psycopg2://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}'
+
+else:
+    app.config["SQLALCHEMY_DATABASE_URI"] = (
+        f"postgresql://postgres.qmwevglvexkkijxjguqo:"
+        f"{DB_PASSWORD}"
+        f"@aws-0-us-west-2.pooler.supabase.com:6543/postgres"
+        f"?sslmode=require"
+    )
 app.config['SQLALCHEMY_ECHO'] = DB_DEBUG
 app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {'connect_args': {'connect_timeout': 10}}
 db.init_app(app)
