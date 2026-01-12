@@ -229,6 +229,13 @@ def debug_env():
         "ENVIRONMENT": os.getenv("ENVIRONMENT"),
     }
 
+@app.route('/debug/time')
+def debug_time():
+    return {
+        "server_time": datetime.now().isoformat(),
+        "server_date": str(datetime.now().date()),
+        "timezone": os.getenv('TZ', 'Not set (using UTC)')
+    }
 if __name__ == '__main__':
     port = int(os.getenv('PORT', SERVER_PORT))
     server = pywsgi.WSGIServer(("0.0.0.0", port), app)

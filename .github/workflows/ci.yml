@@ -106,6 +106,7 @@ jobs:
           CORS_ORIGINS=https://nutrition-manager-tau.vercel.app,https://nutrition-manager-3tno0hbfo-tsueatyons-projects.vercel.app
           REDIS_HOST=sunny-swan-8859.upstash.io:6379
           REDIS_PORT=6379
+          TZ=America/Los_Angeles
         secrets: |
           JWT_SECRET_KEY=JWT_SECRET_KEY:latest
           DB_PASSWORD=DB_PASSWORD:latest
