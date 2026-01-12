@@ -103,13 +103,15 @@ jobs:
           DB_USER=postgres
           DB_DEBUG=False
           ENVIRONMENT=production
-          CORS_ORIGINS=https://nutrition-manager-tau.vercel.app
+          CORS_ORIGINS=https://nutrition-manager-tau.vercel.app,https://nutrition-manager-3tno0hbfo-tsueatyons-projects.vercel.app
+          REDIS_HOST=sunny-swan-8859.upstash.io:6379
+          REDIS_PORT=6379
         secrets: |
           JWT_SECRET_KEY=JWT_SECRET_KEY:latest
           DB_PASSWORD=DB_PASSWORD:latest
           USDA_API_KEY=USDA_API_KEY:latest
           ANTHROPIC_API_KEY=ANTHROPIC_API_KEY:latest
-
+          REDIS_PASSWORD=REDIS_PASSWORD:latest
     - name: Show Output
       run: echo ${{ steps.deploy.outputs.url }}
 
