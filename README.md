@@ -5,6 +5,14 @@ A full-stack web application for tracking daily nutrition intake, calculating pe
 ![Tech Stack](https://img.shields.io/badge/Stack-Flask%20%7C%20React%20%7C%20PostgreSQL-blue)
 ![License](https://img.shields.io/badge/License-MIT-green)
 
+## Live demo
+Link:https://nutrition-manager-tau.vercel.app/login
+Username:test1
+Password:e
+## Motivation
+
+
+
 ## ✨ Key Features
 
 - **User Authentication & Profiles**: JWT-based authentication with comprehensive user profile management
@@ -33,7 +41,8 @@ A full-stack web application for tracking daily nutrition intake, calculating pe
 - **Supabase** (PostgreSQL hosting)
 - **Docker** (Containerization)
 - **Environment-based configuration** (Development, Production, Testing)
-
+- **Upstash** (redis hosting)
+  
 ## 🏗️ Architecture Highlights
 
 - **RESTful API Design**: Clean separation between routes, business logic, and data access layers
