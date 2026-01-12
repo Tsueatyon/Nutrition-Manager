@@ -6,20 +6,8 @@ from flask_jwt_extended import JWTManager, get_jwt_identity, verify_jwt_in_reque
 from gevent import pywsgi
 from dotenv import load_dotenv
 from database import db
-from functions import (
-    register_user,
-    login_user,
-    response,
-    get_my_profile,
-    profile_edit,
-    update_log,
-    insert_log,
-    retrieve_log,
-    delete_log,
-    dv_summation,
-    get_7_day_history,
-    get_daily_needs
-)
+from functions import (register_user,login_user,response,get_my_profile,profile_edit,update_log,insert_log,retrieve_log,delete_log,
+    dv_summation,get_7_day_history,get_daily_needs)
 from chat_handler import handle_chat_message
 env_file = os.getenv('ENV_FILE', '.env.dev')
 
@@ -29,10 +17,8 @@ if os.path.exists(env_file):
 elif os.path.exists(f'Backend/{env_file}'):
     load_dotenv(f'Backend/{env_file}')
 else:
-    # Try to load from current directory or parent
     load_dotenv(env_file, override=False)
 
-# Now read all config from environment variables
 SERVER_PORT = int(os.getenv('SERVER_PORT', os.getenv('PORT', 8080)))
 JWT_SECRET_KEY = os.getenv('JWT_SECRET_KEY')
 
@@ -63,12 +49,19 @@ CORS(app,
 jwt = JWTManager(app)
 app.config['JWT_SECRET_KEY'] = JWT_SECRET_KEY
 app.config['JWT_ACCESS_TOKEN_EXPIRES'] = timedelta(hours=5)
-app.config['SQLALCHEMY_DATABASE_URI'] = f'postgresql+psycopg2://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}'
+app.config['SQLALCHEMY_DATABASE_URI'] = (
+    f'postgresql+psycopg2://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}'
+)
+
+app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
+    'connect_args': {
+        'sslmode': 'require',
+        'connect_timeout': 10
+    }
+}
 app.config['SQLALCHEMY_ECHO'] = DB_DEBUG
-app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {'connect_args': {'connect_timeout': 10}}
 db.init_app(app)
 
-# Initialize Redis connection on startup
 try:
     from redis_client import get_redis_client
     get_redis_client()
@@ -221,7 +214,6 @@ def chat_history():
 @app.route('/debug/db')
 def debug_db():
     try:
-        # Test database connection
         from sqlalchemy import text
         with db.engine.connect() as conn:
             result = conn.execute(text("SELECT 1"))
@@ -230,7 +222,6 @@ def debug_db():
         return {"status": "error", "message": str(e), "db_connected": False}
 
 if __name__ == '__main__':
-    # Use PORT environment variable (Cloud Run sets this) or SERVER_PORT from config
     port = int(os.getenv('PORT', SERVER_PORT))
     server = pywsgi.WSGIServer(("0.0.0.0", port), app)
     server.serve_forever()

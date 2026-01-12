@@ -1,6 +1,3 @@
-"""
-Unit tests for functions.py
-"""
 import pytest
 import json
 from datetime import date, datetime, timedelta

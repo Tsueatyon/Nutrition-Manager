@@ -16,7 +16,6 @@ class CustomJSONEncoder(json.JSONEncoder):
         return super().default(obj)
 
 def get_redis_client():
-    """Get or create Redis client. Works with GCloud Memorystore or local Redis."""
     global _redis_client
     
     if _redis_client is not None:
@@ -46,7 +45,6 @@ def get_redis_client():
         return None
 
 def cache_get(key: str) -> Optional[Any]:
-    """Get value from cache."""
     try:
         client = get_redis_client()
         if not client:
@@ -61,7 +59,6 @@ def cache_get(key: str) -> Optional[Any]:
         return None
 
 def cache_set(key: str, value: Any, ttl: int = 3600):
-    """Set value in cache with TTL (default 1 hour)."""
     try:
         client = get_redis_client()
         if not client:
@@ -74,7 +71,6 @@ def cache_set(key: str, value: Any, ttl: int = 3600):
         return False
 
 def cache_delete(key: str):
-    """Delete key from cache."""
     try:
         client = get_redis_client()
         if client:
@@ -83,32 +79,23 @@ def cache_delete(key: str):
         print(f"Cache delete error: {e}")
 
 def get_cache_key_for_recommendation(username: str, query_hash: str) -> str:
-    """Generate cache key for recommendation."""
     return f"recommendation:{username}:{query_hash}"
 
 def get_cache_key_for_chat(username: str) -> str:
-    """Generate cache key for chat history."""
     return f"chat_history:{username}"
 
 def get_cache_key_for_daily_nutrition(username: str, target_date: str) -> str:
-    """Generate cache key for daily nutrition data."""
     return f"nutrition:{username}:{target_date}"
 
 def get_cache_key_for_7day_history(username: str) -> str:
-    """Generate cache key for 7-day nutrition history."""
     return f"history_7days:{username}"
 
 def get_cache_key_for_logs(username: str, date_filter: str = None) -> str:
-    """Generate cache key for food intake logs."""
     if date_filter:
         return f"logs:{username}:{date_filter}"
     return f"logs:{username}:all"
 
 def invalidate_nutrition_cache(username: str, affected_date: str = None):
-    """Invalidate all nutrition-related cache for a user.
-    If affected_date is provided, only invalidates cache for that date and 7-day history.
-    Otherwise, invalidates all nutrition cache for the user.
-    """
     try:
         client = get_redis_client()
         if not client:
@@ -117,12 +104,10 @@ def invalidate_nutrition_cache(username: str, affected_date: str = None):
         cache_delete(get_cache_key_for_logs(username))
         if affected_date:
             cache_delete(get_cache_key_for_logs(username, affected_date))
-        
-        # Invalidate daily nutrition cache
+
         if affected_date:
             cache_delete(get_cache_key_for_daily_nutrition(username, affected_date))
         else:
-            # If no specific date, invalidate all dates in past 7 days
             from datetime import date, timedelta
             today = date.today()
             for i in range(7):

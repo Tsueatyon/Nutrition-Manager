@@ -10,7 +10,6 @@ from redis_client import cache_get, cache_set, get_cache_key_for_recommendation,
 
 
 def get_mcp_tools_for_llm():
-    """Convert MCP tools to Anthropic function calling format."""
     tools = [
         {
             "name": "get_user_profile",
@@ -112,8 +111,7 @@ def handle_chat_message(request: Request):
         
         if len(user_message.strip()) == 0:
             return response(400, "Message cannot be empty")
-        
-        # Validate history
+
         if not isinstance(conversation_history, list):
             print(f"Warning: history is not a list, got {type(conversation_history)}")
             conversation_history = []
@@ -142,8 +140,6 @@ def handle_chat_message(request: Request):
 Use the available tools to get user information when needed. Be conversational and helpful."""
             
             messages.append({"role": "system", "content": system_message})
-            
-            # Process conversation history with extensive error handling
             for i, msg in enumerate(conversation_history[-10:]):
                 try:
                     if not isinstance(msg, dict):
@@ -170,16 +166,14 @@ Use the available tools to get user information when needed. Be conversational a
                 except Exception as e:
                     print(f"Error processing history[{i}]: {e}")
                     continue
-            
-            # Add current message
+
             messages.append({"role": "user", "content": user_message.strip()})
             
         except Exception as e:
             print(f"Error building messages: {e}")
             traceback.print_exc()
             return response(500, f"Error building messages: {str(e)}")
-        
-        # Step 6: Check cache for similar recommendations
+
         query_hash = hashlib.md5(user_message.strip().lower().encode()).hexdigest()
         cache_key = get_cache_key_for_recommendation(username, query_hash)
         cached_response = cache_get(cache_key)
@@ -187,30 +181,25 @@ Use the available tools to get user information when needed. Be conversational a
         if cached_response:
             print(f"Cache hit for query: {user_message[:50]}...")
             return response(200, "Cached recommendation", cached_response)
-        
-        # Step 7: Store chat history in Redis
+
         try:
             chat_key = get_cache_key_for_chat(username)
             chat_history = conversation_history + [{"role": "user", "content": user_message.strip()}]
             cache_set(chat_key, chat_history, ttl=86400 * 7)
         except Exception as e:
             print(f"Failed to cache chat history: {e}")
-        
-        # Step 8: Process LLM call synchronously
+
         try:
             if llm_provider == 'anthropic':
                 result = call_anthropic_api(api_key, messages, tools, username)
             else:
                 return response(400, f"Unsupported LLM provider: {llm_provider}")
-            
-            # Handle result (can be dict with error or success data)
+
             if isinstance(result, dict):
                 if "error" in result:
                     return response(500, result["error"])
                 else:
-                    # Cache successful responses
                     cache_set(cache_key, result, ttl=3600)
-                    # Update chat history with AI response
                     try:
                         chat_key = get_cache_key_for_chat(username)
                         updated_history = chat_history + [{"role": "assistant", "content": result.get("message", "")}]
@@ -241,7 +230,6 @@ Use the available tools to get user information when needed. Be conversational a
 
 
 def call_anthropic_api(api_key: str, messages: list, tools: list, username: str = None):
-    """Call Anthropic API with improved error handling."""
     try:
         import anthropic
         

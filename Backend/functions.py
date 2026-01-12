@@ -27,10 +27,12 @@ def response(code: int, message: str, data: any = None):
         200
     )
 
+
 def query(sql: str, param=None):
     res = db.session.execute(text(sql), param)
     data = [dict(zip(result.keys(), result)) for result in res]
     return data
+
 
 def execute(sql: str, param=None):
     try:
@@ -40,6 +42,7 @@ def execute(sql: str, param=None):
     except Exception as e:
         db.session.rollback()
         raise e
+
 
 def register_user(request: Request):
     data = request.get_json()
@@ -55,7 +58,7 @@ def register_user(request: Request):
     try:
         if not all([username, password, age, sex, height, weight, activity_level, goal]):
             return response(400, 'All fields are required')
-        
+
         try:
             age = int(age)
             if not 1 <= age <= 150:
@@ -112,6 +115,7 @@ def register_user(request: Request):
         db.session.rollback()
         return response(500, f'Internal server error: {str(error)}')
 
+
 def login_user(request: Request):
     credentials = request.get_json()
     username = credentials.get('username')
@@ -153,6 +157,7 @@ def login_user(request: Request):
         print('Login error:', error)
         return response(500, 'Internal server error')
 
+
 def get_my_profile():
     username = get_jwt_identity()
     if not username:
@@ -169,6 +174,7 @@ def get_my_profile():
         db.session.rollback()
         print(f"Get profile error: {e}")
         return response(500, "Failed to retrieve profile")
+
 
 def profile_edit(request: Request):
     current_username = get_jwt_identity()
@@ -190,10 +196,10 @@ def profile_edit(request: Request):
                 value = int(value)
             except (ValueError, TypeError):
                 return response(400, 'Age must be a valid integer')
-        
+
         updates[key] = value
         params[key] = value
-    
+
     if not updates:
         return response(400, 'No valid fields provided to update')
 
@@ -206,13 +212,9 @@ def profile_edit(request: Request):
         if result.rowcount == 0:
             return response(400, 'User not found')
 
-        # Invalidate cache for daily needs (7-day history cache contains daily_needs)
-        # Also invalidate all nutrition-related cache since profile affects daily needs calculation
         try:
             from redis_client import invalidate_nutrition_cache, cache_delete, get_cache_key_for_7day_history
-            # Invalidate 7-day history cache which contains daily_needs
             cache_delete(get_cache_key_for_7day_history(current_username))
-            # Also invalidate all nutrition cache to ensure fresh data
             invalidate_nutrition_cache(current_username)
         except Exception as e:
             print(f"Cache invalidation error in profile_edit: {e}")
@@ -242,7 +244,7 @@ def search_food_in_usda(food_name: str):
         }
 
         search_response = requests.post(
-            search_url, 
+            search_url,
             params=query_params,
             json=search_body,
             headers={'Content-Type': 'application/json'},
@@ -258,7 +260,6 @@ def search_food_in_usda(food_name: str):
         if not search_data.get('foods') or len(search_data['foods']) == 0:
             return None
 
-        # Try each food result until we find one with complete nutrition data
         for food_item in search_data['foods']:
             nutrients = {}
             for nutrient in food_item.get('foodNutrients', []):
@@ -273,26 +274,20 @@ def search_food_in_usda(food_name: str):
                 nutrient_unit = nutrient.get('unitName', '').lower()
                 nutrient_id = nutrient.get('nutrientId')
 
-                # Use nutrient IDs for more reliable matching (standard USDA IDs)
-                # Energy: 1008 (kcal) or 1062 (kJ)
-                # Protein: 1003
-                # Carbohydrate: 1005
-                # Fat: 1004
-                if nutrient_id == 1008:  # Energy (kcal)
+                if nutrient_id == 1008:
                     nutrients['calories'] = nutrient_value
-                elif nutrient_id == 1062:  # Energy (kJ)
+                elif nutrient_id == 1062:
                     nutrients['calories'] = nutrient_value / 4.184
-                elif nutrient_id == 1003:  # Protein
+                elif nutrient_id == 1003:
                     if nutrient_unit == 'g':
                         nutrients['protein'] = nutrient_value
-                elif nutrient_id == 1005:  # Carbohydrate, by difference
+                elif nutrient_id == 1005:
                     if nutrient_unit == 'g':
                         nutrients['carbs'] = nutrient_value
-                elif nutrient_id == 1004:  # Total lipid (fat)
+                elif nutrient_id == 1004:
                     if nutrient_unit == 'g':
                         nutrients['fat'] = nutrient_value
                 else:
-                    # Fallback to name-based matching if ID doesn't match
                     if not nutrients.get('calories'):
                         if 'energy' in nutrient_name:
                             if 'kcal' in nutrient_unit:
@@ -303,10 +298,12 @@ def search_food_in_usda(food_name: str):
                         if ('protein' in nutrient_name or 'prot' in nutrient_name) and nutrient_unit == 'g':
                             nutrients['protein'] = nutrient_value
                     if not nutrients.get('carbs'):
-                        if ('carbohydrate' in nutrient_name or 'carb' in nutrient_name or 'cho' in nutrient_name) and nutrient_unit == 'g':
+                        if (
+                                'carbohydrate' in nutrient_name or 'carb' in nutrient_name or 'cho' in nutrient_name) and nutrient_unit == 'g':
                             nutrients['carbs'] = nutrient_value
                     if not nutrients.get('fat'):
-                        if ('total lipid' in nutrient_name or 'fat, total' in nutrient_name or 'fat' == nutrient_name) and nutrient_unit == 'g':
+                        if (
+                                'total lipid' in nutrient_name or 'fat, total' in nutrient_name or 'fat' == nutrient_name) and nutrient_unit == 'g':
                             nutrients['fat'] = nutrient_value
 
             # Use defaults of 0 for missing nutrients instead of failing
@@ -333,6 +330,7 @@ def search_food_in_usda(food_name: str):
     except Exception as e:
         print(f"Error searching USDA: {e}")
         return None
+
 
 def insert_log(request: Request):
     username = get_jwt_identity()
@@ -457,7 +455,7 @@ def insert_log(request: Request):
             row_dict["intake_date"] = row_dict["intake_date"].isoformat()
         if row_dict.get("created_at"):
             row_dict["created_at"] = row_dict["created_at"].isoformat()
-        
+
         if row_dict.get("food_id"):
             food_query = query("SELECT name FROM food WHERE id = :food_id", {"food_id": row_dict["food_id"]})
             if food_query:
@@ -500,14 +498,14 @@ def update_log(request: Request):
         if "food_name" in data:
             food_name = data.get("food_name")
             food_check = query("SELECT id FROM food WHERE LOWER(name) = LOWER(:food_name)", {"food_name": food_name})
-            
+
             if food_check:
                 food_id = food_check[0]["id"]
             else:
                 usda_food = search_food_in_usda(food_name)
                 if not usda_food:
                     return response(400, f"Food '{food_name}' not found in local database or USDA API")
-                
+
                 # Check if the USDA food name already exists (might be different from user's input)
                 usda_food_check = query(
                     "SELECT id FROM food WHERE LOWER(name) = LOWER(:food_name)",
@@ -566,7 +564,7 @@ def update_log(request: Request):
                 updates["intake_date"] = intake_date
             except (ValueError, TypeError):
                 return response(400, "intake_date must be valid ISO date (YYYY-MM-DD)")
-        
+
         if "quantity" in updates:
             try:
                 quantity = float(updates["quantity"])
@@ -612,7 +610,7 @@ def update_log(request: Request):
             result_dict["created_at"] = result_dict["created_at"].isoformat()
         if result_dict.get("updated_at"):
             result_dict["updated_at"] = result_dict["updated_at"].isoformat()
-        
+
         if result_dict.get("food_id"):
             food_query = query("SELECT name FROM food WHERE id = :food_id", {"food_id": result_dict["food_id"]})
             if food_query:
@@ -647,7 +645,7 @@ def retrieve_log(time_constraint: date = None):
                 return response(200, "Logs retrieved successfully (cached)", cached_data)
         except ImportError:
             pass  # Redis not available, continue without cache
-        
+
         sql = "SELECT id FROM users WHERE username = :username"
         res = query(sql, {"username": username})
         if not res:
@@ -678,7 +676,7 @@ def retrieve_log(time_constraint: date = None):
         sql += " ORDER BY ui.intake_date DESC, ui.created_at DESC"
 
         logs = query(sql, params)
-        
+
         # Cache the result (24 hour TTL)
         try:
             from redis_client import cache_set, get_cache_key_for_logs
@@ -687,13 +685,15 @@ def retrieve_log(time_constraint: date = None):
             cache_set(cache_key, logs, ttl=86400)  # Cache for 24 hours
         except ImportError:
             pass
-        
+
         return response(200, "Logs retrieved successfully", logs)
 
     except Exception as e:
         db.session.rollback()
         print("Retrieve log error:", e)
         return response(500, "Failed to retrieve logs")
+
+
 def delete_log(request: Request):
     username = get_jwt_identity()
     data = request.get_json()
@@ -728,7 +728,7 @@ def delete_log(request: Request):
 
         result = execute(sql, {"intake_id": target_intake_id, "user_id": user_id})
         deleted_row = result.fetchone()
-        
+
         if not deleted_row:
             return response(400, "Entry not found or unauthorized")
 
@@ -741,7 +741,7 @@ def delete_log(request: Request):
             result_dict["created_at"] = result_dict["created_at"].isoformat()
         if result_dict.get("updated_at"):
             result_dict["updated_at"] = result_dict["updated_at"].isoformat()
-        
+
         if result_dict.get("food_id"):
             food_query = query("SELECT name FROM food WHERE id = :food_id", {"food_id": result_dict["food_id"]})
             if food_query:
@@ -760,6 +760,8 @@ def delete_log(request: Request):
         db.session.rollback()
         print("Delete log error:", e)
         return response(500, "Failed to delete intake entry")
+
+
 def fetch_intake_rows(user_id: int, target_date: date):
     sql = """
         SELECT
@@ -778,6 +780,8 @@ def fetch_intake_rows(user_id: int, target_date: date):
         "user_id": user_id,
         "target_date": target_date
     })
+
+
 def get_daily_nutrition(target_date: date = None):
     username = get_jwt_identity()
     if not target_date:
@@ -790,7 +794,16 @@ def get_daily_nutrition(target_date: date = None):
             cache_key = get_cache_key_for_daily_nutrition(username, str(target_date))
             cached_data = cache_get(cache_key)
             if cached_data is not None:
-                return cached_data
+                # Validate cached data is a dictionary
+                if isinstance(cached_data, dict):
+                    return cached_data
+                else:
+                    # Invalid cache format, clear it and continue
+                    print(f"Warning: Invalid cache format for {cache_key}, expected dict but got {type(cached_data)}")
+                    try:
+                        cache_set(cache_key, None, ttl=86400)
+                    except ImportError:
+                        pass
         except ImportError:
             pass  # Redis not available, continue without cache
 
@@ -798,7 +811,7 @@ def get_daily_nutrition(target_date: date = None):
         res = query(sql, {"username": username})
 
         if not res:
-            return response(400, "User not found")
+            return None
 
         user_id = res[0]["id"]
         intake_rows = fetch_intake_rows(user_id, target_date)
@@ -836,7 +849,7 @@ def get_daily_nutrition(target_date: date = None):
             cache_set(cache_key, total, ttl=86400)  # Cache for 24 hours
         except ImportError:
             pass
-        
+
         return total
 
     except Exception as e:
@@ -850,7 +863,7 @@ def dv_summation():
 
     try:
         nutrition = get_daily_nutrition(date.today())
-        
+
         if nutrition is None:
             return response(200, "No intake today", {
                 "date": str(date.today()),
@@ -859,6 +872,11 @@ def dv_summation():
                 "carbs": 0,
                 "fat": 0
             })
+
+        # Validate nutrition is a dictionary before unpacking
+        if not isinstance(nutrition, dict):
+            print(f"Error: get_daily_nutrition returned {type(nutrition)} instead of dict: {nutrition}")
+            return response(500, 'Invalid nutrition data format')
 
         return response(200, "Daily nutrition calculated successfully", {
             "date": str(date.today()),
@@ -869,9 +887,11 @@ def dv_summation():
         db.session.rollback()
         print('Calculate dv nutrition error:', e)
         return response(500, 'Failed to calculate daily nutrition')
+
+
 def get_daily_needs():
     username = get_jwt_identity()
-    
+
     try:
         sql = """
             SELECT username, age, sex, height_cm, weight_kg, activity_level, goal
@@ -880,7 +900,7 @@ def get_daily_needs():
         result = query(sql, {"username": username})
         if not result:
             return response(400, "User not found")
-        
+
         profile = result[0]
         age_years = profile["age"]
         sex = profile["sex"].lower()
@@ -888,41 +908,41 @@ def get_daily_needs():
         height_cm = float(profile["height_cm"])
         activity_level = profile["activity_level"]
         goal = profile.get("goal", "maintain")
-        
+
         # Validate data
         if not all([weight_kg, height_cm, age_years]):
             return response(400, "missing required profile data: weight_kg, height_cm, age")
-        
+
         if sex not in ("male", "female"):
             return response(400, f"invalid sex value: {sex}")
-        
+
         if activity_level not in ["sedentary", "light", "moderate", "active", "extra"]:
             return response(400, f"invalid activity_level: {activity_level}")
-        
+
         if goal not in ["cut", "maintain", "bulk"]:
             return response(400, f"invalid goal value: {goal}. Must be 'cut', 'maintain', or 'bulk'")
-        
+
         if sex == "male":
             bmr = 10 * weight_kg + 6.25 * height_cm - 5 * age_years + 5
         else:
             bmr = 10 * weight_kg + 6.25 * height_cm - 5 * age_years - 161
-        
+
         factors = {"sedentary": 1.2, "light": 1.375, "moderate": 1.55, "active": 1.725, "extra": 1.9}
         tdee = bmr * factors[activity_level]
-        
+
         # Adjust TDEE based on goal
         goal_adjustments = {
-            "cut": -0.20,      # 20% deficit for weight loss
-            "maintain": 0.0,   # No adjustment for maintenance
-            "bulk": 0.20       # 20% surplus for weight gain
+            "cut": -0.20,  # 20% deficit for weight loss
+            "maintain": 0.0,  # No adjustment for maintenance
+            "bulk": 0.20  # 20% surplus for weight gain
         }
         goal_multiplier = 1.0 + goal_adjustments.get(goal, 0.0)
         adjusted_tdee = tdee * goal_multiplier
-        
+
         protein = round(1.6 * weight_kg)
         fat = round((adjusted_tdee * 0.25) / 9)
         carbs = round((adjusted_tdee - (protein * 4 + fat * 9)) / 4)
-        
+
         return response(200, "Daily needs calculated successfully", {
             "calories": round(adjusted_tdee),
             "protein_g": protein,
@@ -932,9 +952,9 @@ def get_daily_needs():
             "tdee": round(tdee),
             "activity_multiplier": factors[activity_level],
             "goal": goal,
-            "goal_adjustment": f"{goal_adjustments[goal]*100:.0f}%"
+            "goal_adjustment": f"{goal_adjustments[goal] * 100:.0f}%"
         })
-        
+
     except Exception as e:
         db.session.rollback()
         print('Get daily needs error:', e)
@@ -943,7 +963,7 @@ def get_daily_needs():
 
 def get_7_day_history():
     username = get_jwt_identity()
-    
+
     try:
         # Try to get from cache first
         try:
@@ -954,17 +974,17 @@ def get_7_day_history():
                 return response(200, "7-day history retrieved successfully (cached)", cached_data)
         except ImportError:
             pass  # Redis not available, continue without cache
-        
+
         sql = "SELECT id FROM users WHERE username = :username"
         res = query(sql, {"username": username})
-        
+
         if not res:
             return response(400, "User not found")
-        
+
         user_id = res[0]["id"]
         today = date.today()
         history = []
-        
+
         sql_profile = """
             SELECT username, age, sex, height_cm, weight_kg, activity_level, goal
             FROM users WHERE username = :username
@@ -972,7 +992,7 @@ def get_7_day_history():
         profile_result = query(sql_profile, {"username": username})
         if not profile_result:
             return response(400, "User not found")
-        
+
         profile = profile_result[0]
         age_years = profile["age"]
         sex = profile["sex"].lower()
@@ -980,34 +1000,34 @@ def get_7_day_history():
         height_cm = float(profile["height_cm"])
         activity_level = profile["activity_level"]
         goal = profile.get("goal", "maintain")
-        
+
         if sex == "male":
             bmr = 10 * weight_kg + 6.25 * height_cm - 5 * age_years + 5
         else:
             bmr = 10 * weight_kg + 6.25 * height_cm - 5 * age_years - 161
-        
+
         factors = {"sedentary": 1.2, "light": 1.375, "moderate": 1.55, "active": 1.725, "extra": 1.9}
         tdee = bmr * factors[activity_level]
-        
+
         # Adjust TDEE based on goal
         goal_adjustments = {
-            "cut": -0.20,      # 20% deficit for weight loss
-            "maintain": 0.0,   # No adjustment for maintenance
-            "bulk": 0.20       # 20% surplus for weight gain
+            "cut": -0.20,  # 20% deficit for weight loss
+            "maintain": 0.0,  # No adjustment for maintenance
+            "bulk": 0.20  # 20% surplus for weight gain
         }
         goal_multiplier = 1.0 + goal_adjustments.get(goal, 0.0)
         adjusted_tdee = tdee * goal_multiplier
-        
+
         protein = round(1.6 * weight_kg)
         fat = round((adjusted_tdee * 0.25) / 9)
         carbs = round((adjusted_tdee - (protein * 4 + fat * 9)) / 4)
-        
+
         daily_needs = {"calories": round(adjusted_tdee), "protein_g": protein, "fat_g": fat, "carbs_g": carbs}
-        
+
         for i in range(7):
             target_date = today - timedelta(days=i)
             nutrition = get_daily_nutrition(target_date)
-            
+
             history.append({
                 "date": str(target_date),
                 "calories": nutrition.get("calories") if nutrition else None,
@@ -1021,12 +1041,12 @@ def get_7_day_history():
                     "fat_g": daily_needs.get("fat_g", 0)
                 }
             })
-        
+
         result_data = {
             "history": history,
             "daily_needs": daily_needs
         }
-        
+
         # Cache the result (24 hour TTL)
         try:
             from redis_client import cache_set, get_cache_key_for_7day_history
@@ -1034,9 +1054,9 @@ def get_7_day_history():
             cache_set(cache_key, result_data, ttl=86400)  # Cache for 24 hours
         except ImportError:
             pass
-        
+
         return response(200, "7-day history retrieved successfully", result_data)
-        
+
     except Exception as e:
         db.session.rollback()
         print('Get 7-day history error:', e)
