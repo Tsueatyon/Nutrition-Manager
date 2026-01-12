@@ -16,6 +16,7 @@ class CustomJSONEncoder(json.JSONEncoder):
         return super().default(obj)
 
 def get_redis_client():
+
     global _redis_client
     
     if _redis_client is not None:
