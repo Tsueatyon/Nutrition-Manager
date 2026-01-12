@@ -220,6 +220,14 @@ def debug_db():
             return {"status": "ok", "db_connected": True}
     except Exception as e:
         return {"status": "error", "message": str(e), "db_connected": False}
+@app.route("/debug/env")
+def debug_env():
+    return {
+        "DB_HOST": os.getenv("DB_HOST"),
+        "DB_USER": os.getenv("DB_USER"),
+        "DB_NAME": os.getenv("DB_NAME"),
+        "ENVIRONMENT": os.getenv("ENVIRONMENT"),
+    }
 
 if __name__ == '__main__':
     port = int(os.getenv('PORT', SERVER_PORT))
