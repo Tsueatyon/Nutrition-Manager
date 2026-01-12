@@ -443,8 +443,10 @@ class TestGetDailyNutrition:
         
         with patch('builtins.__import__', side_effect=mock_import):
             result = get_daily_nutrition(date.today())
-            # Returns None when user not found (helper function returns data, not Response)
-            assert result is None
+            # Returns response object when user not found
+            data = json.loads(result.get_data(as_text=True))
+            assert data['code'] == 400
+            assert 'not found' in data['message'].lower()
 
 
 class TestDvSummation:
