@@ -6,9 +6,9 @@ A full-stack web application for tracking daily nutrition intake, calculating pe
 ![License](https://img.shields.io/badge/License-MIT-green)
 
 ## Live demo
-Link:https://nutrition-manager-tau.vercel.app/login
-Username:test1
-Password:e
+- Link:https://nutrition-manager-tau.vercel.app/login
+- Username:test1
+- Password:e
 ## Motivation
 
 
