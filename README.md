@@ -10,7 +10,7 @@ A full-stack web application for tracking daily nutrition intake, calculating pe
 - Username:test1
 - Password:e
 ## Motivation
-
+- People need an app to track nutrition intake. Nutrition tracking apps on the markets enables basic nutrition tracking and does not provide recommendations. This increase user time to find cuisine that meets the nutrition goal. My solution is therefore nutrition tracking + recommendation feature. 
 
 
 ## ✨ Key Features
@@ -52,51 +52,6 @@ A full-stack web application for tracking daily nutrition intake, calculating pe
 - **Security**: JWT authentication, password hashing, CORS configuration, and input validation
 - **Error Handling**: Comprehensive exception handling with appropriate HTTP status codes
 - **Testing**: Unit tests with pytest and mocking for isolated component testing
-
-## 🚀 Getting Started
-
-### Prerequisites
-- Python 3.10+
-- Node.js 18+
-- PostgreSQL database
-- API keys: USDA FoodData Central, Anthropic/OpenAI
-
-### Quick Setup
-
-1. **Backend**
-   ```bash
-   cd Backend
-   pip install -r requirements.txt
-   # Configure environment variables
-   python server.py
-   ```
-
-2. **Frontend**
-   ```bash
-   cd my-app
-   npm install
-   npm run dev
-   ```
-
-See individual configuration files for detailed setup instructions.
-
-## 📁 Project Structure
-
-```
-nutrition_app/
-├── Backend/              # Flask REST API
-│   ├── server.py        # Application entry point and routes
-│   ├── functions.py     # Business logic layer
-│   ├── chat_handler.py  # AI chat integration
-│   ├── mcp_tools.py     # MCP tools for AI assistant
-│   ├── database.py      # Database configuration
-│   └── tests/           # Unit tests
-└── my-app/              # React frontend
-    └── src/
-        ├── pages/       # Page components
-        ├── components/  # Reusable UI components
-        └── services/    # API service layer
-```
 
 ## ☁️ Deployment
 
